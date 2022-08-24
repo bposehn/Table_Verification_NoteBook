@@ -1,6 +1,9 @@
 ﻿using MySql.Data.MySqlClient;
 using System;
 using System.IO;
+using System.Data;
+using System.Diagnostics;
+using System.Timers;
 using YamlDotNet;
 using System.Text.RegularExpressions;  
 
@@ -15,6 +18,7 @@ using System.Text.RegularExpressions;
         public static void Main()
         {
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09");
+            verifier.HasHoles();
         }
 
         public TableVerifier(string table_name){
@@ -25,9 +29,130 @@ using System.Text.RegularExpressions;
             populateTableAxesValues();
             Console.WriteLine("done!");
         }
-        public void CheckHoles()
-        {
 
+        ~TableVerifier(){
+            _connection.Close();
+        }
+
+        public void HasHoles() //need to determine what the proper return type will be here
+        {
+            // if(! hasAnyNulls()){
+            //     return; // table has no null values, no need to check for holes
+            // }
+
+            int num_rows = getNumRows();
+
+            const int batch_size = 100;
+            int current_batch_start = 0;
+
+            var sw = new Stopwatch();
+            sw.Start();
+
+            string get_table_batch_cmd_string = "";       
+            while(current_batch_start < num_rows)
+            {
+                if(current_batch_start + batch_size - 1 > num_rows){
+                    get_table_batch_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` ORDER BY FileName LIMIT " + (num_rows - current_batch_start).ToString() + " OFFSET " + (current_batch_start - 1).ToString(); 
+                }else if(current_batch_start == 0){
+                    get_table_batch_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` ORDER BY FileName LIMIT " + batch_size.ToString();
+                }else{
+                    get_table_batch_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` ORDER BY FileName LIMIT " + batch_size.ToString() + " OFFSET " + (current_batch_start - 1).ToString(); 
+                }
+
+                var sw_ = new Stopwatch();
+                sw_.Start();
+                using(var get_table_batch_cmd = new MySqlCommand(get_table_batch_cmd_string, _connection))
+                {
+                    var dt = new DataTable();
+                    dt.Load(get_table_batch_cmd.ExecuteReader());
+
+                    sw_.Stop();
+                    Console.WriteLine("single batch time: {0}", sw_.ElapsedMilliseconds);
+                    // foreach(var row in dt.Rows){
+                    //     Console.WriteLine(row);
+                    // }
+                }
+
+                current_batch_start += batch_size;
+            }
+            sw.Stop();
+
+            Console.WriteLine("getting all data in chunks took: {0}", sw.ElapsedMilliseconds);
+
+            return;
+        }
+
+        public bool checkProfileAtColumn(String column_name){
+
+
+            return true;
+        }
+
+
+        private bool hasAnyNulls()
+        {
+            string get_num_columns_cmd_string = "SELECT COUNT(*) `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='GradShafranov' AND `TABLE_NAME`='pi3b_asbuilt_pfc17500ab_2022-06-09'";
+            int num_columns;
+
+            using(var get_num_columns_cmd = new MySqlCommand(get_num_columns_cmd_string, _connection))
+            {
+                var rdr = get_num_columns_cmd.ExecuteReader();
+                rdr.Read();
+                num_columns = rdr.GetInt32(0);
+                rdr.Close();
+            }
+
+            string[] col_names = new string[num_columns];
+
+            string get_columns_cmd_string = "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='GradShafranov' AND `TABLE_NAME`='pi3b_asbuilt_pfc17500ab_2022-06-09'";
+            using(var get_columns_cmd = new MySqlCommand(get_columns_cmd_string, _connection))
+            {
+                int i = 0;
+                var rdr = get_columns_cmd.ExecuteReader();
+                while(rdr.Read()){
+                    col_names[i] = rdr.GetString(0);
+                    i++;
+                }
+                rdr.Close();
+            }
+
+            //first check if anything has nulls
+            int j = 0;
+            string where_clause = "";
+            bool nulls_found = false;
+            foreach(var col_name in col_names){
+                j++;
+                where_clause += col_name + " IS NULL OR ";
+                if(j == 10){ // batch queries
+                    where_clause = where_clause.Substring(0, where_clause.Length - 4);
+                    string check_any_nulls_cmd_string = "SELECT COUNT(*) FROM gradshafranov.`pi3b_asbuilt_pfc17500ab_2022-06-09` WHERE " + where_clause;
+                    using var check_any_nulls_cmd = new MySqlCommand(check_any_nulls_cmd_string, _connection);
+                    var rdr_ = check_any_nulls_cmd.ExecuteReader();
+                    rdr_.Read();
+
+                    if(rdr_.GetInt32(0) != 0){
+                        nulls_found = true;
+                        break; //we need to check for holes
+                    }
+                    
+                    where_clause = "";
+                    j = 0;
+                }
+            }
+
+            return nulls_found;
+        }
+
+        private int getNumRows()
+        {
+            string get_num_rows_cmd_string = "SELECT COUNT(*) FROM gradshafranov.`" + TableName + "`";
+            var get_num_rows_cmd = new MySqlCommand(get_num_rows_cmd_string, _connection);
+            using(var rdr = get_num_rows_cmd.ExecuteReader())
+            {
+                rdr.Read();
+                var ret = rdr.GetInt32(0);
+                return ret;
+            }
         }
 
         private void populateTableAxesValues()
@@ -105,15 +230,3 @@ using System.Text.RegularExpressions;
         private MySql.Data.MySqlClient.MySqlConnection _connection;
     }
 }
-
-// using var con = new MySqlConnection(cs);
-// con.Open();
-
-// using var cmd = new MySqlCommand("SHOW TABLES", con);
-
-// using MySqlDataReader rdr = cmd.ExecuteReader();
-
-// while (rdr.Read())
-// {
-//     Console.WriteLine(rdr.GetValue(0));
-// }
