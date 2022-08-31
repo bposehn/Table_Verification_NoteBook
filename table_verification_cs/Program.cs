@@ -7,7 +7,7 @@ using System.Timers;
 using YamlDotNet;
 using System.Text.RegularExpressions;  
 
-﻿﻿namespace TableVerifier
+﻿﻿namespace TableVerification
 {
     public class YamlConfig{
         public Dictionary<string, Object> table_axes {get; set;}
@@ -27,6 +27,7 @@ using System.Text.RegularExpressions;
             _connection.Open();
 
             populateTableAxesValues();
+            createTableAxesIndex();
         }
 
         ~TableVerifier(){
@@ -36,55 +37,80 @@ using System.Text.RegularExpressions;
         public void HasHoles() //need to determine what the proper return type will be here
         {
             // working fine just dont want to wait for
-            if(! hasAnyNulls()){
-                return; // table has no null values, no need to check for holes
+            // if(! hasAnyNulls()){
+            //     return; // table has no null values, no need to check for holes
+            // }
+
+            var tableVals = TableAxesValues.Values.ToArray();
+            var tableKeys = TableAxesValues.Keys.ToArray();
+
+            int n = 1;
+            foreach(var vals in tableVals){
+                n *= vals.Count();
+            }
+            Console.WriteLine("{0} Table Axis Combinations", n);
+
+            var sw = new Stopwatch();
+            sw.Start();
+
+            //currently would take around 48 hours just to get data
+            for(int i = 0; i < TableAxesValues.Count(); i++)
+            {
+                Dictionary<string, double[]> non_search_table_axes = new Dictionary<string, double[]>();
+                foreach(var pair in TableAxesValues){
+                    if(pair.Key == tableKeys[i]) continue;
+                    non_search_table_axes.Add(pair.Key, pair.Value);
+                }
+
+                var non_search_keys = non_search_table_axes.Keys.ToArray();
+                if(non_search_keys.Count() != 6){
+                    // error
+                }
+
+                var search_axis = tableVals[i];
+
+                // Parallel.ForEach(non_search_table_axes[non_search_keys[0]], val0 =>
+                // {
+                //     Console.WriteLine("aaa");
+                // });
+
+                foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
+                foreach(var val1 in non_search_table_axes[non_search_keys[1]]){
+                foreach(var val2 in non_search_table_axes[non_search_keys[2]]){
+                foreach(var val3 in non_search_table_axes[non_search_keys[3]]){
+                foreach(var val4 in non_search_table_axes[non_search_keys[4]]){
+                foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
+                    // TODO modify the column names as they are different in yaml vs table
+                    var get_search_axis_val_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` WHERE " +
+                     non_search_keys[0] + " = " + val0.ToString() + " AND " +
+                     non_search_keys[1] + " = " + val1.ToString() + " AND " +
+                     non_search_keys[2] + " = " + val2.ToString() + " AND " +
+                     non_search_keys[3] + " = " + val3.ToString() + " AND " +
+                     non_search_keys[4] + " = " + val4.ToString() + " AND " +
+                     non_search_keys[5] + " = " + val5.ToString();
+
+                    using(var get_search_axis_val_cmd = new MySqlCommand(get_search_axis_val_cmd_string, _connection))
+                    {
+                        get_search_axis_val_cmd.CommandTimeout = 200;
+                        var dt = new DataTable();
+                        dt.Load(get_search_axis_val_cmd.ExecuteReader());
+                        Console.WriteLine("one query takes {0}: ", sw.ElapsedMilliseconds);
+                        sw.Restart();
+                    }
+                }
+                }
+                }
+                }
+                }
+                }
             }
 
-            // int num_rows = getNumRows();
-
-            // const int batch_size = 100;
-            // int current_batch_start = 0;
-
-            // var sw = new Stopwatch();
-            // sw.Start();
-
-            // string get_table_batch_cmd_string = "";       
-            // while(current_batch_start < num_rows)
-            // {
-            //     if(current_batch_start + batch_size - 1 > num_rows){
-            //         get_table_batch_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` ORDER BY FileName LIMIT " + (num_rows - current_batch_start).ToString() + " OFFSET " + (current_batch_start - 1).ToString(); 
-            //     }else if(current_batch_start == 0){
-            //         get_table_batch_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` ORDER BY FileName LIMIT " + batch_size.ToString();
-            //     }else{
-            //         get_table_batch_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` ORDER BY FileName LIMIT " + batch_size.ToString() + " OFFSET " + (current_batch_start - 1).ToString(); 
-            //     }
-
-            //     var sw_ = new Stopwatch();
-            //     sw_.Start();
-            //     using(var get_table_batch_cmd = new MySqlCommand(get_table_batch_cmd_string, _connection))
-            //     {
-            //         var dt = new DataTable();
-            //         dt.Load(get_table_batch_cmd.ExecuteReader());
-
-            //         sw_.Stop();
-            //         Console.WriteLine("single batch time: {0}", sw_.ElapsedMilliseconds);
-            //         // foreach(var row in dt.Rows){
-            //         //     Console.WriteLine(row);
-            //         // }
-            //     }
-
-            //     current_batch_start += batch_size;
-            // }
-            // sw.Stop();
-
-            // Console.WriteLine("getting all data in chunks took: {0}", sw.ElapsedMilliseconds);
-
-            // return;
+            sw.Stop();
+            Console.WriteLine("Done in: {0}", sw.Elapsed);
         }
 
-        public bool checkProfileAtColumn(String column_name){
-
-
+        public bool checkProfileAtColumn(String column_names)
+        {
             return true;
         }
 
@@ -99,7 +125,6 @@ using System.Text.RegularExpressions;
                 using var rdr = get_num_columns_cmd.ExecuteReader();
                 rdr.Read();
                 num_columns = rdr.GetInt32(0);
-                // rdr.Close();
             }
 
             string[] col_names = new string[num_columns];
@@ -151,6 +176,34 @@ using System.Text.RegularExpressions;
             }
         }
 
+        private void createTableAxesIndex()
+        {
+            if(TableAxesValues.Count() == 0){
+                // error
+            }
+            var table_axes_names = TableAxesValues.Keys.ToArray();
+            string table_axes_name_string = "";
+            foreach(var name in table_axes_names)
+            {
+                table_axes_name_string += name + ", ";
+            }
+            table_axes_name_string = table_axes_name_string.Substring(0, table_axes_name_string.Length - 2);
+
+            string create_table_axes_index_cmd_string = 
+             "CREATE INDEX table_axes_index ON gradshafranov.`" + TableName + "`(" + table_axes_name_string + ")";
+            using(var create_table_axes_index_cmd = new MySqlCommand(create_table_axes_index_cmd_string, _connection))
+            {
+                try{
+                   create_table_axes_index_cmd.ExecuteReader(); 
+                }catch(MySql.Data.MySqlClient.MySqlException  e){
+                    // Do nothing if index already exists
+                    if(! e.Message.StartsWith("Duplicate key name")){
+                        throw e;
+                    }
+                }
+            }
+        }
+
         private void populateTableAxesValues()
         {
             string yaml_file_name = getYamlFilename();
@@ -176,12 +229,8 @@ using System.Text.RegularExpressions;
             foreach(var pair in content.table_axes){
                 Console.Write(pair.Value.GetType());
                 if(pair.Value.GetType() == typeof(String)){
-                    var string_value = (String)(pair.Value);
-                    if(TableAxesValues.ContainsKey(string_value)){
-                        TableAxesValues.Add(pair.Key, TableAxesValues[string_value]);
-                    }else{
-                        // ? 
-                    }
+                    // this is NevinsB: NevinsA which we can just skip
+                    continue;
                 }
                 else if(pair.Value.GetType() == typeof(List<Object>)){
                     var obj_list = (List<Object>)pair.Value;
@@ -193,7 +242,14 @@ using System.Text.RegularExpressions;
                             i++;
                         }
                     }
-                    TableAxesValues.Add(pair.Key, vals);
+                    var key = pair.Key;
+                    if(pair.Key == "CurrentRatio"){
+                        for(int j = 0; j<vals.Count(); j++){
+                            vals[j] *= 1e6;
+                        }
+                        key = "Ipl_setpoint";
+                    }
+                    TableAxesValues.Add(key, vals);
                 }
                 else{
                     // TODO add error handling
@@ -204,7 +260,7 @@ using System.Text.RegularExpressions;
         private string getYamlFilename()
         {
             string get_yaml_file_cmd_string =
-             "SELECT YamlFilename, FilesLocation FROM gradshafranov.lut_metadata WHERE TableName = '" + TableName + "'";
+             "SELECT YamlFilename, FilesLocation FROM gradshafranov." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
             using var get_yaml_file_cmd = new MySqlCommand(get_yaml_file_cmd_string, _connection);
 
             using MySqlDataReader rdr = get_yaml_file_cmd.ExecuteReader();
