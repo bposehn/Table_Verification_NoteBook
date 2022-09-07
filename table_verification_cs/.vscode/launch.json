@@ -10,7 +10,6 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            // "program": "${workspaceFolder}/bin/Debug/net6.0/table_verification_cs.dll",
             "program": "${workspaceFolder}/bin/Debug/table_verification_cs.dll",
             "args": [],
             "cwd": "${workspaceFolder}",
