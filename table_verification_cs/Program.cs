@@ -22,6 +22,23 @@ using System.Collections.Concurrent;
 
 ﻿﻿namespace TableVerification
 {
+    public struct TableParams{
+        double psieq_soak {set;get;}
+        double beta_pol1_setpoint {set;get;}
+        double psieq_dc {set; get;}
+        double NevinsA {set; get;}
+        double NevinsC {set; get;}
+        double NevinsN {set; get;}
+        double CurrentRatio {set; get;}
+
+    }
+    public struct FailingProfile
+    {
+        string ProfileColumnName {get; set;}
+        string SearchAxis {get; set;}
+        TableParams Params{get;set;}
+    }
+
     public class YamlConfig{
         public Dictionary<string, Object> table_axes {get; set;}
     }
@@ -30,23 +47,42 @@ using System.Collections.Concurrent;
     {
         public static void Main()
         {
-            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09");
+            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
             // verifier.HasHoles();
             var profile_check_result = verifier.checkProfileAtColumns("B161087,B211100,B261087,B291060,B215008,B261008", .25);
             Console.WriteLine(profile_check_result);
         }
 
-        public TableVerifier(string table_name){
-            TableName = table_name;
-            // _connection = new MySqlConnection(_connectionString);
-            // _connection.Open();
+        public TableVerifier(string tableName, string columnsOfInterest){
+            TableName = tableName;
+            ColumnsOfInterest = columnsOfInterest;
 
             populateTableAxesValues();
-            createTableAxesIndex();
+            loadTable();
         }
 
-        ~TableVerifier(){
-            // _connection.Close();
+        private void loadTable(){
+            var tableKeys = TableAxesValues.Keys.ToArray();
+
+            var queryColumns = "";
+            foreach(var tableKey in tableKeys){
+                queryColumns += tableKey + ", ";
+            }
+            foreach(var columnOfInterest in ColumnsOfInterest.Split(',')){
+                queryColumns += columnOfInterest + ", ";
+            }
+            queryColumns = queryColumns.Substring(0, queryColumns.Length-2);
+
+            var get_table_cmd_string = $"SELECT {queryColumns} FROM {_databaseName}.`{TableName}`";
+            using(var connection = new MySqlConnection(_connectionString))
+            {
+                connection.Open();
+                using var get_table_cmd = new MySqlCommand(get_table_cmd_string, connection);
+                get_table_cmd.CommandTimeout = 100;
+                _dataTable.Load(get_table_cmd.ExecuteReader()); 
+                Console.WriteLine(_dataTable.Rows.Count);
+            }
+
         }
 
         public void HasHoles() //need to determine what the proper return type will be here
@@ -557,11 +593,13 @@ using System.Collections.Concurrent;
 
         public Dictionary<String, double[]> TableAxesValues = new Dictionary<string, double[]>();
         public string TableName;
+        public string ColumnsOfInterest;
 
         // private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
         private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
-
+        private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         private string[] _tableAxesNames = new string[]{"psieq_soak", "beta_pol1_setpoint", "psieq_dc", "NevinsA", "NevinsC", "NevinsN", "Ipl_setpoint"};
+        private DataTable _dataTable = new DataTable();
     }
 }
