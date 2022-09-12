@@ -62,6 +62,15 @@ using System.Collections.Concurrent;
         }
 
         private void loadTable(){
+            // if(File.Exists("xmltable.xml")){
+            //     var sw_read = new Stopwatch();
+            //     sw_read.Start();
+            //     _dataTable.ReadXml("xmltable.xml");
+            //     Console.WriteLine($"read: {_dataTable.Rows.Count} in");
+            //     Console.WriteLine(sw_read.ElapsedMilliseconds);
+            //     return;
+            // }
+
             var tableKeys = TableAxesValues.Keys.ToArray();
 
             var queryColumns = "";
@@ -73,16 +82,20 @@ using System.Collections.Concurrent;
             }
             queryColumns = queryColumns.Substring(0, queryColumns.Length-2);
 
+            var sw = new Stopwatch();
+            sw.Start();
+
             var get_table_cmd_string = $"SELECT {queryColumns} FROM {_databaseName}.`{TableName}`";
             using(var connection = new MySqlConnection(_connectionString))
             {
                 connection.Open();
                 using var get_table_cmd = new MySqlCommand(get_table_cmd_string, connection);
-                get_table_cmd.CommandTimeout = 100;
+                get_table_cmd.CommandTimeout = 200;
                 _dataTable.Load(get_table_cmd.ExecuteReader()); 
+                _dataTable.WriteXml("xmltable.xml");
                 Console.WriteLine(_dataTable.Rows.Count);
+                Console.WriteLine(sw.ElapsedMilliseconds);
             }
-
         }
 
         public void HasHoles() //need to determine what the proper return type will be here
@@ -189,29 +202,17 @@ using System.Collections.Concurrent;
         public string checkProfileAtColumns(String column_names, double max_fit_goodness_to_mean_fit_goodness_threshold)
         {
             ConcurrentBag<string> failing_tests_bag = new ConcurrentBag<string>();
-            var column_arr = column_names.Split(',');
+            string[] column_arr = ColumnsOfInterest.Split(",");
 
             Dictionary<string, double[]> reduced_TableAxesValues = new Dictionary<string, double[]>();
 
-            foreach(var pr in TableAxesValues){
-                double[] reduced_arr = new double[4];
-                Array.Copy(pr.Value, reduced_arr, 4);
-                reduced_TableAxesValues.Add(pr.Key, reduced_arr);
+            var tableVals = TableAxesValues.Values.ToArray();
+            var tableKeys = TableAxesValues.Keys.ToArray();
 
-            }
+            var total_sw = new Stopwatch();
+            total_sw.Start();
 
-            // var tableVals = TableAxesValues.Values.ToArray();
-            // var tableKeys = TableAxesValues.Keys.ToArray();
-
-            var tableVals = reduced_TableAxesValues.Values.ToArray();
-            var tableKeys = reduced_TableAxesValues.Keys.ToArray();
-
-            var sw = new Stopwatch();
-            sw.Start();
-
-            // ~ 3 million loops 
             for(int i = 0; i < reduced_TableAxesValues.Count(); i++)
-            // for(int i = 0; i < TableAxesValues.Count(); i++)
             {
                 Dictionary<string, double[]> non_search_table_axes = new Dictionary<string, double[]>();
                 var search_axis_name = tableKeys[i];
@@ -228,19 +229,73 @@ using System.Collections.Concurrent;
                     // error
                 }
 
-                Parallel.ForEach(non_search_table_axes[non_search_keys[0]], val0 => {
-                Parallel.ForEach(non_search_table_axes[non_search_keys[1]], val1 => {
-                Parallel.ForEach(non_search_table_axes[non_search_keys[2]], val2 => {
-                Parallel.ForEach(non_search_table_axes[non_search_keys[3]], val3 => {
-                Parallel.ForEach(non_search_table_axes[non_search_keys[4]], val4 => {
-                Parallel.ForEach(non_search_table_axes[non_search_keys[5]], val5 => { 
-                
-                // foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
-                // foreach(var val1 in non_search_table_axes[non_search_keys[1]]){
-                // foreach(var val2 in non_search_table_axes[non_search_keys[2]]){
-                // foreach(var val3 in non_search_table_axes[non_search_keys[3]]){
-                // foreach(var val4 in non_search_table_axes[non_search_keys[4]]){
-                // foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
+                var sw = new Stopwatch();
+                sw.Start();
+
+                // start
+
+                foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
+                    var arr0 = _dataTable.Select($"{non_search_keys[0]} = {val0}");
+                    if(arr0.Length == 0){
+                        continue;
+                    }
+                    var sort0 = arr0.CopyToDataTable();
+                    // Console.WriteLine($"1st sort took: {sw.ElapsedMilliseconds}");
+                    // sw.Restart();
+                foreach(var val1 in non_search_table_axes[non_search_keys[1]]){
+                    var arr1 = sort0.Select($"{non_search_keys[1]} = {val1}");
+                    if(arr1.Length == 0){
+                        continue;
+                    }
+                    var sort1 = arr1.CopyToDataTable();
+                    // Console.WriteLine($"2nd sort took: {sw.ElapsedMilliseconds}");
+                    // sw.Restart();
+                foreach(var val2 in non_search_table_axes[non_search_keys[2]]){
+                    var arr2 = sort1.Select($"{non_search_keys[2]} = {val2}");
+                    if(arr2.Length == 0){
+                        continue;
+                    }
+                    var sort2 = arr2.CopyToDataTable();
+
+                    // DataTable sort2 = new DataTable();
+                    // for(int p = 0; p< 10; p++){
+                    //     sort2 = sort1.Select($"{non_search_keys[2]} = {val2}").CopyToDataTable();
+                    // }
+                    // Console.WriteLine($"3rd sort took: {sw.ElapsedMilliseconds}");
+                    // sw.Restart();
+                foreach(var val3 in non_search_table_axes[non_search_keys[3]]){
+                    var arr3 = sort2.Select($"{non_search_keys[3]} = {val3}");
+                    if(arr3.Length == 0){
+                        continue;
+                    }
+                    var sort3 = arr3.CopyToDataTable();
+
+                    // DataTable sort3 = new DataTable();
+                    // for(int p = 0; p< 100; p++){
+                    //     sort3 = sort2.Select($"{non_search_keys[3]} = {val3}").CopyToDataTable();
+                    // }
+                    // Console.WriteLine($"4th sort took: {sw.ElapsedMilliseconds}");
+                    // sw.Restart();
+                foreach(var val4 in non_search_table_axes[non_search_keys[4]]){
+                    var arr4 = sort3.Select($"{non_search_keys[4]} = {val4}");
+                    if(arr4.Length == 0){
+                        continue;
+                    }
+                    var sort4 = arr4.CopyToDataTable();
+
+                    // DataTable sort4 = new DataTable();
+                    // for(int p = 0; p< 1000; p++){
+                    //     sort4 = sort3.Select($"{non_search_keys[4]} = {val4}").CopyToDataTable();
+                    // }
+                    // Console.WriteLine($"5th sort took: {sw.ElapsedMilliseconds}");
+                    // sw.Restart();
+                foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
+                    var arr5 = sort4.Select($"{non_search_keys[5]} = {val5}");
+                    if(arr5.Length == 0){
+                        continue;
+                    }
+                    var dt = arr5.CopyToDataTable();
+
                     Dictionary<string, double> non_search_values = new Dictionary<string, double>(){
                         {non_search_keys[0], val0},
                         {non_search_keys[1], val1},
@@ -249,163 +304,123 @@ using System.Collections.Concurrent;
                         {non_search_keys[4], val4},
                         {non_search_keys[5], val5}
                     };
-                    var table_param_values_str = non_search_keys[0] + " = " + val0.ToString() + " AND " +
-                                                non_search_keys[1] + " = " + val1.ToString() + " AND " +
-                                                non_search_keys[2] + " = " + val2.ToString() + " AND " +
-                                                non_search_keys[3] + " = " + val3.ToString() + " AND " +
-                                                non_search_keys[4] + " = " + val4.ToString() + " AND " +
-                                                non_search_keys[5] + " = " + val5.ToString();
-                    var get_search_axis_val_cmd_string = "SELECT " + column_names + " FROM gradshafranov.`" + TableName + "` WHERE " + table_param_values_str;
 
-                    // var t = 0.0;
-                    // Console.WriteLine("t1: {0}", sw.ElapsedMilliseconds - t);
-                    // t = sw.ElapsedMilliseconds;
-
-                    using var connection = new MySqlConnection(_connectionString);
-                    try{
-                        connection.Open();
-                    }catch(MySql.Data.MySqlClient.MySqlException e){
-                        return;
-                    }catch(System.InvalidOperationException e){
-                        return;
+                    string table_param_values_str = "";
+                    foreach(var pair in non_search_values){
+                        table_param_values_str += $"{pair.Key} = {pair.Value} ";
                     }
-                    catch(Exception e){
-                        return;
+
+                    if(dt.Rows.Count < 5)
+                        continue;
+
+                    Dictionary<string, double[]> column_vals = new Dictionary<string, double[]>();
+                    foreach(string col_name in column_arr){
+                        column_vals.Add(col_name, new double[dt.Rows.Count]);
                     }
-                    
 
-                    // Console.WriteLine("t2: {0}", sw.ElapsedMilliseconds - t);
-                    // t = sw.ElapsedMilliseconds;
-
-                    using(var get_search_axis_val_cmd = new MySqlCommand(get_search_axis_val_cmd_string, connection))
-                    {
-                        // Console.WriteLine("t3: {0}", sw.ElapsedMilliseconds - t);
-                        // t = sw.ElapsedMilliseconds;
-
-                        get_search_axis_val_cmd.CommandTimeout = 200;
-
-                        using var dt = new DataTable();
-                        Dictionary<string, double[]> column_vals = new Dictionary<string, double[]>();
-                        dt.Load(get_search_axis_val_cmd.ExecuteReader());
-
-                        // Console.WriteLine("t4: {0}", sw.ElapsedMilliseconds - t);
-                        // t = sw.ElapsedMilliseconds;
-
-                        if(dt.Rows.Count < 5)
-                            // continue; // cant have in parallel
-                            return;
-
-                        foreach(string col_name in column_arr){
-                            column_vals.Add(col_name, new double[dt.Rows.Count]);
-                        }
-
-                        // Console.WriteLine("t5: {0}", sw.ElapsedMilliseconds - t);
-                        // t = sw.ElapsedMilliseconds;
-
-                        int row_num = 0;
-                        foreach(DataRow row in dt.Rows){
-                            foreach(var col_name in column_arr){
-                                column_vals[col_name][row_num] = Convert.ToDouble(row[col_name]);
-                            }
-                            row_num ++;
-                        }
-
-                        // Console.WriteLine("t6: {0}", sw.ElapsedMilliseconds - t);
-                        // t = sw.ElapsedMilliseconds;
-
-                        var xs = Enumerable.Range(0, dt.Rows.Count);
-                        double[] xs_dbl = new double[dt.Rows.Count - 1];
-                        for(int j = 0; j<dt.Rows.Count - 1; j++){
-                            xs_dbl[j] = Convert.ToDouble(j);
-                        }
-
-                        // Console.WriteLine("t7: {0}", sw.ElapsedMilliseconds - t);
-                        // t = sw.ElapsedMilliseconds;
-
+                    int row_num = 0;
+                    foreach(DataRow row in dt.Rows){
                         foreach(var col_name in column_arr){
+                            column_vals[col_name][row_num] = Convert.ToDouble(row[col_name]);
+                        }
+                        row_num ++;
+                    }
 
-                            bool plot = false;
+                    var xs = Enumerable.Range(0, dt.Rows.Count);
+                    double[] xs_dbl = new double[dt.Rows.Count - 1];
+                    for(int j = 0; j<dt.Rows.Count - 1; j++){
+                        xs_dbl[j] = Convert.ToDouble(j);
+                    }
 
-                            // calc quadratic spline fits with removal of a point
-                            double[] point_removed_quadratic_fit_goodness = new double[column_vals[col_name].Count()];
+                    foreach(var col_name in column_arr){
 
-                            for(int j = 0; j < column_vals[col_name].Count(); j++){
-                                var data_with_removed_value = column_vals[col_name].Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
-                                
-                                // var sw2 = new Stopwatch();
-                                // sw2.Start();
+                        bool plot = false;
 
-                                double[] quadratic_fit_params = Fit.Polynomial(xs_dbl, data_with_removed_value, 2);
-                                // Console.WriteLine("fit time: {0}", sw2.ElapsedMilliseconds * 1000);
-                                // sw2.Restart();
+                        // calc quadratic spline fits with removal of a point
+                        double[] point_removed_quadratic_fit_goodness = new double[column_vals[col_name].Count()];
 
-                                var quadratic_fit_goodness = GoodnessOfFit.RSquared(xs_dbl.Select(
-                                    x => quadratic_fit_params[0] + quadratic_fit_params[1]*x + quadratic_fit_params[2]*Math.Pow(x, 2)), data_with_removed_value);
-                                // Console.WriteLine("goodness find time: {0}", sw2.ElapsedMilliseconds * 1000);
-                                // sw2.Stop();
+                        for(int j = 0; j < column_vals[col_name].Count(); j++){
+                            var data_with_removed_value = column_vals[col_name].Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
+                            
+                            // var sw2 = new Stopwatch();
+                            // sw2.Start();
 
-                                point_removed_quadratic_fit_goodness[j] = quadratic_fit_goodness;
+                            double[] quadratic_fit_params = Fit.Polynomial(xs_dbl, data_with_removed_value, 2);
+                            // Console.WriteLine("fit time: {0}", sw2.ElapsedMilliseconds * 1000);
+                            // sw2.Restart();
 
-                                // double[] linear_fit_params = Fit.Polynomial(xs_dbl, data_with_removed_value, 1);
-                                // var linear_fit_goodness = GoodnessOfFit.RSquared(xs_dbl.Select(
-                                //     x => linear_fit_params[0] + linear_fit_params[1]*x), data_with_removed_value);
-                                // point_removed_linear_fit_goodness[j] = linear_fit_goodness;
-                            }
+                            var quadratic_fit_goodness = GoodnessOfFit.RSquared(xs_dbl.Select(
+                                x => quadratic_fit_params[0] + quadratic_fit_params[1]*x + quadratic_fit_params[2]*Math.Pow(x, 2)), data_with_removed_value);
+                            // Console.WriteLine("goodness find time: {0}", sw2.ElapsedMilliseconds * 1000);
+                            // sw2.Stop();
 
-                            var point_removed_quadratic_fit_goodness_best_fit_removed = point_removed_quadratic_fit_goodness.Where(
-                                (source, index) => index != Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())).ToArray();
-                            double[] selected_point_removed_fit_goodness = point_removed_quadratic_fit_goodness_best_fit_removed;
- 
-                            (double mean_fit_goodness, double std_dev) = selected_point_removed_fit_goodness.MeanStandardDeviation();
-                            double dist_from_best_fit_to_mean = selected_point_removed_fit_goodness.Max() - mean_fit_goodness;
+                            point_removed_quadratic_fit_goodness[j] = quadratic_fit_goodness;
 
-                            // Console.Write("dist from best fit to mean: {0}, ", dist_from_best_fit_to_mean);
-
-                            if(dist_from_best_fit_to_mean > max_fit_goodness_to_mean_fit_goodness_threshold){
-
-                                double offending_value = 0;
-
-                                try{
-                                    offending_value = search_axis[Array.IndexOf(selected_point_removed_fit_goodness, selected_point_removed_fit_goodness.Max())];
-                                }catch(Exception e){
-                                    continue;
-                                }
-
-                                string param_str = "";
-                                foreach(var table_axes_name in _tableAxesNames){
-                                    if(non_search_values.Keys.Contains(table_axes_name)){
-                                        param_str += non_search_values[table_axes_name].ToString() + ", ";
-                                    }else if(table_axes_name == search_axis_name){
-                                        param_str += offending_value + ", ";
-                                    }else{
-                                        // error
-                                    }
-                                }
-                                param_str = param_str.Substring(0, param_str.Length - 2);
-                                Console.WriteLine($"{col_name}, {tableKeys[i]}, ({param_str}))");
-                                failing_tests_bag.Add($"{col_name}, {tableKeys[i]}, ({param_str}))");
-
-                                // plot = true;
-                            }
-
-                            if(plot){
-                                var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(col_name);
-                                chart_y.Show();
-
-                                var chart_fit = Chart2D.Chart.Line<int, double, string>(xs, selected_point_removed_fit_goodness).WithTitle(table_param_values_str + $"<br>Fit Goodness Without Point for {col_name}<br>Fit goodness mean: {mean_fit_goodness}<br>Max to Mean Fit Goodness Diff: {dist_from_best_fit_to_mean}");
-                                chart_fit.Show();
-                            }
-
+                            // double[] linear_fit_params = Fit.Polynomial(xs_dbl, data_with_removed_value, 1);
+                            // var linear_fit_goodness = GoodnessOfFit.RSquared(xs_dbl.Select(
+                            //     x => linear_fit_params[0] + linear_fit_params[1]*x), data_with_removed_value);
+                            // point_removed_linear_fit_goodness[j] = linear_fit_goodness;
                         }
 
-                        // Console.WriteLine("t8: {0}\n", sw.ElapsedMilliseconds - t);
-                        // sw.Restart();
+                        var point_removed_quadratic_fit_goodness_best_fit_removed = point_removed_quadratic_fit_goodness.Where(
+                            (source, index) => index != Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())).ToArray();
+                        double[] selected_point_removed_fit_goodness = point_removed_quadratic_fit_goodness_best_fit_removed;
+
+                        (double mean_fit_goodness, double std_dev) = selected_point_removed_fit_goodness.MeanStandardDeviation();
+                        double dist_from_best_fit_to_mean = selected_point_removed_fit_goodness.Max() - mean_fit_goodness;
+
+                        // Console.Write("dist from best fit to mean: {0}, ", dist_from_best_fit_to_mean);
+
+                        if(dist_from_best_fit_to_mean > max_fit_goodness_to_mean_fit_goodness_threshold){
+
+                            double offending_value = 0;
+
+                            try{
+                                offending_value = search_axis[Array.IndexOf(selected_point_removed_fit_goodness, selected_point_removed_fit_goodness.Max())];
+                            }catch(Exception e){
+                                continue;
+                            }
+
+                            string param_str = "";
+                            foreach(var table_axes_name in _tableAxesNames){
+                                if(non_search_values.Keys.Contains(table_axes_name)){
+                                    param_str += non_search_values[table_axes_name].ToString() + ", ";
+                                }else if(table_axes_name == search_axis_name){
+                                    param_str += offending_value + ", ";
+                                }else{
+                                    // error
+                                }
+                            }
+                            param_str = param_str.Substring(0, param_str.Length - 2);
+                            Console.WriteLine($"{col_name}, {tableKeys[i]}, ({param_str}))");
+                            failing_tests_bag.Add($"{col_name}, {tableKeys[i]}, ({param_str}))");
+
+                            // plot = true;
+                        }
+
+                        if(plot){
+                            var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(col_name);
+                            chart_y.Show();
+
+                            var chart_fit = Chart2D.Chart.Line<int, double, string>(xs, selected_point_removed_fit_goodness).WithTitle(table_param_values_str + $"<br>Fit Goodness Without Point for {col_name}<br>Fit goodness mean: {mean_fit_goodness}<br>Max to Mean Fit Goodness Diff: {dist_from_best_fit_to_mean}");
+                            chart_fit.Show();
+                        }
+
                     }
-                // } } } } } }
-                }); }); }); }); }); });
+
+                }}}}}}
+
+                sw.Stop();
+                Debug.WriteLine($"To get through entire search arr: {sw.ElapsedMilliseconds}");
+                Console.WriteLine($"To get through entire search arr: {sw.ElapsedMilliseconds}");
+                File.AppendAllText("debug.txt", $"To get through entire search arr: {sw.ElapsedMilliseconds}\n");
+
+                // endd
+
             }
 
-            Console.WriteLine("whole thing took: {0}", sw.ElapsedMilliseconds);
+            Console.WriteLine("whole thing took: {0}", total_sw.ElapsedMilliseconds);
+            total_sw.Stop();
 
             string return_string = "";
             foreach(var s in failing_tests_bag){
@@ -542,7 +557,6 @@ using System.Collections.Concurrent;
             var content = deserializer.Deserialize<YamlConfig>(yaml_text);
 
             foreach(var pair in content.table_axes){
-                Console.Write(pair.Value.GetType());
                 if(pair.Value.GetType() == typeof(String)){
                     // this is NevinsB: NevinsA which we can just skip
                     continue;
@@ -595,8 +609,8 @@ using System.Collections.Concurrent;
         public string TableName;
         public string ColumnsOfInterest;
 
-        // private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
+        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
+        // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         private string[] _tableAxesNames = new string[]{"psieq_soak", "beta_pol1_setpoint", "psieq_dc", "NevinsA", "NevinsC", "NevinsN", "Ipl_setpoint"};
