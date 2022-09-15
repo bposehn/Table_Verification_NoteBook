@@ -1,10 +1,10 @@
-﻿using MySql.Data.MySqlClient;
-using System;
+﻿using System;
 using System.IO;
 using System.Data;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
+using MySql.Data.MySqlClient;
 using System.Threading;
 using System.IO;
 using System.Timers;
@@ -40,8 +40,8 @@ using System.Collections.Concurrent;
         public static void Main()
         {
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
-            // verifier.HasHoles();
-            // var profile_check_result = verifier.checkProfileAtColumns("B161087,B211100,B261087,B291060,B215008,B261008", .25);
+            Console.WriteLine(verifier.TableAxesValues);
+            var profile_check_result = verifier.checkProfileAtColumns("B161087,B211100,B261087,B291060,B215008,B261008", .25);
             // Console.WriteLine(profile_check_result);
         }
 
@@ -71,16 +71,17 @@ using System.Collections.Concurrent;
             return ret_list;
         }
 
+        public int GetNumRowsInDatatable()
+        {
+            return _dataTable.Rows.Count;
+        }
+
         private void loadTable(){
             string tablename = "xmltable.xml";
             string schemaname = "schema.xsd";
             if(File.Exists(tablename) && File.Exists(schemaname)){
-                var sw_read = new Stopwatch();
-                sw_read.Start();
                 _dataTable.ReadXmlSchema(schemaname);
                 _dataTable.ReadXml(tablename);
-                Console.WriteLine($"read: {_dataTable.Rows.Count} in");
-                Console.WriteLine(sw_read.ElapsedMilliseconds);
                 return;
             }
 
@@ -95,9 +96,6 @@ using System.Collections.Concurrent;
             }
             queryColumns = queryColumns.Substring(0, queryColumns.Length-2);
 
-            var sw = new Stopwatch();
-            sw.Start();
-
             var get_table_cmd_string = $"SELECT {queryColumns} FROM {_databaseName}.`{TableName}`";
             using(var connection = new MySqlConnection(_connectionString))
             {
@@ -107,8 +105,6 @@ using System.Collections.Concurrent;
                 _dataTable.Load(get_table_cmd.ExecuteReader()); 
                 _dataTable.WriteXmlSchema(schemaname);
                 _dataTable.WriteXml(tablename);
-                Console.WriteLine(_dataTable.Rows.Count);
-                Console.WriteLine(sw.ElapsedMilliseconds);
                 connection.Close();
             }
         }
@@ -173,30 +169,30 @@ using System.Collections.Concurrent;
                         Console.WriteLine("one query takes {0}: ", sw.ElapsedMilliseconds);
                         sw.Restart();
 
-                        var rows = dt.AsEnumerable().ToArray();
-                        var col_names = getColumnNames();
+                        // var rows = dt.AsEnumerable().ToArray();
+                        // var col_names = getColumnNames();
 
-                        // check for holes along columns
-                        foreach(var row in rows){
-                            for(int j = 1; i<col_names.Count()-1; i++){
-                                if(row[col_names[j-1]] == null && row[col_names[j]] == null //this will likely have to be a different comparison
-                                                               && row[col_names[j+1]] == null){
-                                    // do what?
-                                }
-                            }
-                        }
+                        // // check for holes along columns
+                        // foreach(var row in rows){
+                        //     for(int j = 1; i<col_names.Count()-1; i++){
+                        //         if(row[col_names[j-1]] == null && row[col_names[j]] == null //this will likely have to be a different comparison
+                        //                                        && row[col_names[j+1]] == null){
+                        //             // do what?
+                        //         }
+                        //     }
+                        // }
 
-                        var dt_array = dt.AsEnumerable().ToArray();
-                        var num_rows = dt.Rows.Count;
+                        // var dt_array = dt.AsEnumerable().ToArray();
+                        // var num_rows = dt.Rows.Count;
 
-                        foreach(var col_name in col_names){
-                            for(int j = 1; j < num_rows - 1; j++){
-                                if(dt_array[j-1][col_name] == null && dt_array[j][col_name] == null
-                                                                   && dt_array[j+1][col_name] == null){
-                                    //do what? 
-                                }
-                            }
-                        }
+                        // foreach(var col_name in col_names){
+                        //     for(int j = 1; j < num_rows - 1; j++){
+                        //         if(dt_array[j-1][col_name] == null && dt_array[j][col_name] == null
+                        //                                            && dt_array[j+1][col_name] == null){
+                        //             //do what? 
+                        //         }
+                        //     }
+                        // }
 
                         //check for holes along rows
 
@@ -223,31 +219,14 @@ using System.Collections.Concurrent;
 
             _failingProfiles = new ConcurrentBag<FailingProfile>();
 
-            // Multithread 1
-            // Task[] tasks = new Task[tableKeys.Count()];
-            // List<Task> tasks = new List<Task>();
-            // for(int i = 0; i < tableKeys.Count(); i++)
-            // {
-            //     var search_axis_name = tableKeys[i];
-            //     // tasks[i] = Task.Factory.StartNew(checkProfilesHelper, search_axis_name);
-            //     tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
-            // }
-            
-            // Task.WaitAll(tasks.ToArray());
-
-            // // Multithread 2
-            //  for(int i = 0; i < tableKeys.Count(); i++)
-            // {
-            //     var search_axis_name = tableKeys[i];
-            //     ThreadPool.QueueUserWorkItem(checkProfilesHelper, search_axis_name);
-            // }
-            // _cde.Wait();
-
-            // // Single threaded 1
-
-            foreach(var tableKey in tableKeys){
-                checkProfilesHelper(tableKey);
+            List<Task> tasks = new List<Task>();
+            for(int i = 0; i < tableKeys.Count(); i++)
+            {
+                var search_axis_name = tableKeys[i];
+                tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
             }
+            
+            Task.WaitAll(tasks.ToArray());
 
             Console.WriteLine("All profile check duration: {0}", total_sw.ElapsedMilliseconds);
             total_sw.Stop();
@@ -256,24 +235,21 @@ using System.Collections.Concurrent;
             foreach(var s in _failingProfiles){
                 return_string += s + "\n";
             }
-            Console.WriteLine("DONE");
             return return_string;
         }
 
         private void checkProfilesHelper(Object search_axis_name_obj){
             var search_axis_name = search_axis_name_obj as string;
 
-            // Console.WriteLine($"started on {search_axis_name}");
-
             var tableVals = TableAxesValues.Values.ToArray();
             var tableKeys = TableAxesValues.Keys.ToArray();
-            string[] column_arr = ColumnsOfInterest.Split(",");
+            string[] column_arr = ColumnsOfInterest.Split(',');
             var dt_copy = _dataTable.Copy();
 
             Dictionary<string, double[]> non_search_table_axes = new Dictionary<string, double[]>();
             var search_axis_vals = TableAxesValues[search_axis_name];
 
-            int subarr_length = 3;
+            int subarr_length = 2;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == search_axis_name) continue;
                 double[] partial_vals = new double[subarr_length];
@@ -286,53 +262,64 @@ using System.Collections.Concurrent;
                 // error
             }
 
-            // var sw = new Stopwatch();
-            // sw.Start();
-
             int its = 0;
-            int passes = 0;
-
             foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
                 // var arr0 = _dataTable.Select($"{non_search_keys[0]} = {val0}");
                 var arr0 = dt_copy.Select($"{non_search_keys[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
                 }
-                var sort0 = arr0.CopyToDataTable();
+                
+                var sort0 = _dataTable.Clone();
+                foreach(var row in arr0)
+                    sort0.ImportRow(row);
             foreach(var val1 in non_search_table_axes[non_search_keys[1]]){
                 var arr1 = sort0.Select($"{non_search_keys[1]} = {val1}");
                 if(arr1.Length == 0){
                     continue;
                 }
-                var sort1 = arr1.CopyToDataTable();
+                
+                var sort1 = _dataTable.Clone();
+                foreach(var row in arr1)
+                    sort1.ImportRow(row);
             foreach(var val2 in non_search_table_axes[non_search_keys[2]]){
                 var arr2 = sort1.Select($"{non_search_keys[2]} = {val2}");
                 if(arr2.Length == 0){
                     continue;
                 }
-                var sort2 = arr2.CopyToDataTable();
+                
+                var sort2 = _dataTable.Clone();
+                foreach(var row in arr2)
+                    sort2.ImportRow(row);
             foreach(var val3 in non_search_table_axes[non_search_keys[3]]){
                 var arr3 = sort2.Select($"{non_search_keys[3]} = {val3}");
                 if(arr3.Length == 0){
                     continue;
                 }
-                var sort3 = arr3.CopyToDataTable();
+                
+                var sort3 = _dataTable.Clone();
+                foreach(var row in arr3)
+                    sort3.ImportRow(row);
             foreach(var val4 in non_search_table_axes[non_search_keys[4]]){
                 var arr4 = sort3.Select($"{non_search_keys[4]} = {val4}");
                 if(arr4.Length == 0){
                     continue;
                 }
-                var sort4 = arr4.CopyToDataTable();
+                
+                var sort4 = _dataTable.Clone();
+                foreach(var row in arr4)
+                    sort4.ImportRow(row);
             foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
-
-                // var inner_loop_sw = new Stopwatch();
-                // inner_loop_sw.Start();
 
                 var arr5 = sort4.Select($"{non_search_keys[5]} = {val5}");
                 if(arr5.Length == 0){
                     continue;
                 }
-                var dt = arr5.CopyToDataTable();
+
+                var dt = _dataTable.Clone();
+                foreach(var row in arr5)
+                    dt.ImportRow(row);
+
                 string subtitle = "";
 
                 Dictionary<string, double> non_search_values = new Dictionary<string, double>(){
@@ -371,9 +358,6 @@ using System.Collections.Concurrent;
                 }
 
                 foreach(var col_name in column_arr){
-
-                    bool plot = false;
-
                     FailingProfile? failingProfile = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, .35, ref subtitle);
 
                     if(failingProfile.HasValue){
@@ -383,28 +367,23 @@ using System.Collections.Concurrent;
                         fp.TableParams = non_search_values;
                         _failingProfiles.Add(fp);
 
-                        plot = true;
+                        // plot = true;
                     }
 
-                    if(plot){
-                        var temp_plot_dir = "temp";
-                        if(! Directory.Exists(temp_plot_dir)){
-                            Directory.CreateDirectory(temp_plot_dir);
-                        }
+                    // if(plot){
+                    //     var temp_plot_dir = "temp";
+                    //     if(! Directory.Exists(temp_plot_dir)){
+                    //         Directory.CreateDirectory(temp_plot_dir);
+                    //     }
 
-                        var xs = Enumerable.Range(0, column_vals[col_name].Count());
-                        var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(col_name + "<br>" + search_axis_name + "<br>" + subtitle + $"<br>{table_param_values_str}");
-                        chart_y.SaveHtml($"{temp_plot_dir}/{search_axis_name}_{its}.html");
-                    }
+                    //     var xs = Enumerable.Range(0, column_vals[col_name].Count());
+                    //     var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(col_name + "<br>" + search_axis_name + "<br>" + subtitle + $"<br>{table_param_values_str}");
+                    //     chart_y.SaveHtml($"{temp_plot_dir}/{search_axis_name}_{its}.html");
+                    // }
 
                 }
 
                 its ++;
-                // if(its%1000 == 0){
-                //     Console.WriteLine($"inner loop: {inner_loop_sw.ElapsedMilliseconds} at it: {its}. {passes} passes");
-                //     inner_loop_sw.Reset();
-                // }
-
             }}}}}}
         }
 
@@ -608,9 +587,7 @@ using System.Collections.Concurrent;
         {
             string yaml_file_name = getYamlFilename();
 
-            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
-                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
-                .Build();
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance).Build();
 
             string yaml_text = "";
 
@@ -679,8 +656,8 @@ using System.Collections.Concurrent;
         public string TableName;
         public string ColumnsOfInterest;
 
-        // private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
+        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
+        // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         private string[] _tableAxesNames = new string[]{"psieq_soak", "beta_pol1_setpoint", "psieq_dc", "NevinsA", "NevinsC", "NevinsN", "Ipl_setpoint"};
