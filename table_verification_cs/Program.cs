@@ -4,6 +4,7 @@ using System.Data;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using MySql.Data.MySqlClient;
 using System.Threading;
 using System.IO;
@@ -40,8 +41,7 @@ using System.Collections.Concurrent;
         public static void Main()
         {
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
-            Console.WriteLine(verifier.TableAxesValues);
-            var profile_check_result = verifier.checkProfileAtColumns("B161087,B211100,B261087,B291060,B215008,B261008", .25);
+            verifier.GenerateProfileScores();
             // Console.WriteLine(profile_check_result);
         }
 
@@ -210,7 +210,7 @@ using System.Collections.Concurrent;
         @detail: String returned where each line is a failed profile with: col name, search param name, (param values,)
                     where param values are in order (psieq_soak, beta_pol1_setpoint, psieq_dc, NevinsA(B), NevinsC, NevinsN, CurrentRatio )
         */
-        public string checkProfileAtColumns(String column_names, double max_fit_goodness_to_mean_fit_goodness_threshold)
+        public void GenerateProfileScores()
         {
             var tableKeys = TableAxesValues.Keys.ToArray();
 
@@ -219,6 +219,11 @@ using System.Collections.Concurrent;
 
             _failingProfiles = new ConcurrentBag<FailingProfile>();
 
+            _profileScores = _dataTable.Clone();
+            foreach(var col in ColumnsOfInterest.Split(',')){
+                _profileScores.Columns.Add(col + OffendingValueSuffix, typeof(float));
+            }
+            
             List<Task> tasks = new List<Task>();
             for(int i = 0; i < tableKeys.Count(); i++)
             {
@@ -228,14 +233,18 @@ using System.Collections.Concurrent;
             
             Task.WaitAll(tasks.ToArray());
 
+            // foreach(var search_axis in tableKeys){
+            //     checkProfilesHelper(search_axis);
+            // }
+
             Console.WriteLine("All profile check duration: {0}", total_sw.ElapsedMilliseconds);
             total_sw.Stop();
+        }
 
-            string return_string = "";
-            foreach(var s in _failingProfiles){
-                return_string += s + "\n";
-            }
-            return return_string;
+        public List<FailingProfile> GetFailingProfiles(float threshold){
+            var failingProfiles = new List<FailingProfile>();
+
+            return failingProfiles;
         }
 
         private void checkProfilesHelper(Object search_axis_name_obj){
@@ -357,31 +366,30 @@ using System.Collections.Concurrent;
                     row_num ++;
                 }
 
+                var profileScoreRow = _profileScores.NewRow();
+                profileScoreRow[search_axis_name] = DBNull.Value;
+                profileScoreRow[non_search_keys[0]] = val0;  
+                profileScoreRow[non_search_keys[1]] = val1;  
+                profileScoreRow[non_search_keys[2]] = val2;  
+                profileScoreRow[non_search_keys[3]] = val3;  
+                profileScoreRow[non_search_keys[4]] = val4;  
+                profileScoreRow[non_search_keys[5]] = val5;
+
                 foreach(var col_name in column_arr){
-                    FailingProfile? failingProfile = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, .35, ref subtitle);
+                    var vals = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, .35, ref subtitle);
+                    var metric_score = vals.Item1;
+                    var offending_value = vals.Item2;
 
-                    if(failingProfile.HasValue){
-                        var fp = failingProfile.GetValueOrDefault();
-                        fp.ProfileColumnName = col_name;
-                        fp.SearchAxis = search_axis_name;
-                        fp.TableParams = non_search_values;
-                        _failingProfiles.Add(fp);
-
-                        // plot = true;
-                    }
-
-                    // if(plot){
-                    //     var temp_plot_dir = "temp";
-                    //     if(! Directory.Exists(temp_plot_dir)){
-                    //         Directory.CreateDirectory(temp_plot_dir);
-                    //     }
-
-                    //     var xs = Enumerable.Range(0, column_vals[col_name].Count());
-                    //     var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(col_name + "<br>" + search_axis_name + "<br>" + subtitle + $"<br>{table_param_values_str}");
-                    //     chart_y.SaveHtml($"{temp_plot_dir}/{search_axis_name}_{its}.html");
-                    // }
-
+                    profileScoreRow[col_name] = metric_score;
+                    profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
                 }
+
+  
+                _mtx.WaitOne(); //Critical     
+                {
+                    _profileScores.Rows.Add(profileScoreRow);
+                }
+                _mtx.ReleaseMutex();
 
                 its ++;
             }}}}}}
@@ -422,11 +430,12 @@ using System.Collections.Concurrent;
             return true;
         }
 
-        private FailingProfile? fitWithPointRemovedChecker(in double[] col, in double[] search_axis, in double thresh, ref string subtitle)
+        // return (metric, offending value)
+        private (float, float) fitWithPointRemovedChecker(in double[] col, in double[] search_axis, in double thresh, ref string subtitle)
         {
             if((col.Max() - col.Min()) < (1e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
             {
-                return null;
+                return (0, 0);
             }
 
             var xs = new double[col.Count()-1];
@@ -449,15 +458,7 @@ using System.Collections.Concurrent;
 
             var offending_val = search_axis[Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())];
 
-            if(dist_from_best_fit_to_mean > thresh)
-            {
-                subtitle = $"Dist from best fit to mean: {dist_from_best_fit_to_mean}<br>Fit without point: {point_removed_quadratic_fit_goodness.Max()}";
-                var fp = new FailingProfile();
-                fp.OffendingValue = offending_val;
-                return fp;
-            }
-
-            return null;
+            return ((float)dist_from_best_fit_to_mean, (float)offending_val);
         }
 
         private bool quadraticFitChecker(double[] col, ref string subtitle)
@@ -655,6 +656,8 @@ using System.Collections.Concurrent;
         public Dictionary<String, double[]> TableAxesValues = new Dictionary<string, double[]>();
         public string TableName;
         public string ColumnsOfInterest;
+        public string OffendingValueSuffix = "_offending_val";
+        public List<string> ProfileMetrics = new List<string>();
 
         private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
         // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
@@ -664,5 +667,7 @@ using System.Collections.Concurrent;
 
         private ConcurrentBag<FailingProfile> _failingProfiles;
         private DataTable _dataTable = new DataTable();
+        private DataTable _profileScores;
+        private Mutex _mtx = new Mutex();
     }
 }
