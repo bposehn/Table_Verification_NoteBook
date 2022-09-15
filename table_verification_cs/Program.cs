@@ -28,8 +28,7 @@ using System.Collections.Concurrent;
     {
         public string ProfileColumnName;
         public string SearchAxis;
-        public double OffendingValue;
-        public Dictionary<string, double> TableParams;
+        public Dictionary<string, float> TableParams;
     }
 
     public class YamlConfig{
@@ -42,6 +41,7 @@ using System.Collections.Concurrent;
         {
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
             verifier.GenerateProfileScores();
+            verifier.GetFailingProfiles(0.5);
             // Console.WriteLine(profile_check_result);
         }
 
@@ -58,11 +58,9 @@ using System.Collections.Concurrent;
             f1.ProfileColumnName = "TestName";
             f1.SearchAxis = "TestAxis";
 
-            var tp = new Dictionary<string, double>();
-            tp.Add("a", 1.11);
+            var tp = new Dictionary<string, float>();
+            tp.Add("a", (float)1.11);
             f1.TableParams = tp;
-
-            f1.OffendingValue = 1;
 
             var ret_list = new List<FailingProfile>();
             ret_list.Add(f1);
@@ -109,101 +107,6 @@ using System.Collections.Concurrent;
             }
         }
 
-        public void HasHoles() //need to determine what the proper return type will be here
-        {
-            // working fine just dont want to wait for
-            // if(! hasAnyNulls()){
-            //     return; // table has no null values, no need to check for holes
-            // }
-
-            var tableVals = TableAxesValues.Values.ToArray();
-            var tableKeys = TableAxesValues.Keys.ToArray();
-
-            int n = 1;
-            foreach(var vals in tableVals){
-                n *= vals.Count();
-            }
-            Console.WriteLine("{0} Table Axis Combinations", n);
-
-            var sw = new Stopwatch();
-            sw.Start();
-
-            //currently would take around 48 hours just to get data
-            for(int i = 0; i < TableAxesValues.Count(); i++)
-            {
-                Dictionary<string, double[]> non_search_table_axes = new Dictionary<string, double[]>();
-                foreach(var pair in TableAxesValues){
-                    if(pair.Key == tableKeys[i]) continue;
-                    non_search_table_axes.Add(pair.Key, pair.Value);
-                }
-
-                var non_search_keys = non_search_table_axes.Keys.ToArray();
-                if(non_search_keys.Count() != 6){
-                    // error
-                }
-
-                var search_axis = tableVals[i];
-
-                foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
-                foreach(var val1 in non_search_table_axes[non_search_keys[1]]){
-                foreach(var val2 in non_search_table_axes[non_search_keys[2]]){
-                foreach(var val3 in non_search_table_axes[non_search_keys[3]]){
-                foreach(var val4 in non_search_table_axes[non_search_keys[4]]){
-                foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
-                    var get_search_axis_val_cmd_string = "SELECT * FROM gradshafranov.`" + TableName + "` WHERE " +
-                     non_search_keys[0] + " = " + val0.ToString() + " AND " +
-                     non_search_keys[1] + " = " + val1.ToString() + " AND " +
-                     non_search_keys[2] + " = " + val2.ToString() + " AND " +
-                     non_search_keys[3] + " = " + val3.ToString() + " AND " +
-                     non_search_keys[4] + " = " + val4.ToString() + " AND " +
-                     non_search_keys[5] + " = " + val5.ToString();
-
-                    using var _connection = new MySqlConnection(_connectionString);
-                    _connection.Open();
-                    using(var get_search_axis_val_cmd = new MySqlCommand(get_search_axis_val_cmd_string, _connection))
-                    {
-                        get_search_axis_val_cmd.CommandTimeout = 200;
-                        using var dt = new DataTable();
-                        dt.Load(get_search_axis_val_cmd.ExecuteReader());
-
-                        Console.WriteLine("one query takes {0}: ", sw.ElapsedMilliseconds);
-                        sw.Restart();
-
-                        // var rows = dt.AsEnumerable().ToArray();
-                        // var col_names = getColumnNames();
-
-                        // // check for holes along columns
-                        // foreach(var row in rows){
-                        //     for(int j = 1; i<col_names.Count()-1; i++){
-                        //         if(row[col_names[j-1]] == null && row[col_names[j]] == null //this will likely have to be a different comparison
-                        //                                        && row[col_names[j+1]] == null){
-                        //             // do what?
-                        //         }
-                        //     }
-                        // }
-
-                        // var dt_array = dt.AsEnumerable().ToArray();
-                        // var num_rows = dt.Rows.Count;
-
-                        // foreach(var col_name in col_names){
-                        //     for(int j = 1; j < num_rows - 1; j++){
-                        //         if(dt_array[j-1][col_name] == null && dt_array[j][col_name] == null
-                        //                                            && dt_array[j+1][col_name] == null){
-                        //             //do what? 
-                        //         }
-                        //     }
-                        // }
-
-                        //check for holes along rows
-
-                    }
-                } } } } } }
-            }
-
-            sw.Stop();
-            Console.WriteLine("Done in: {0}", sw.Elapsed);
-        }
-
         /*
         @brief: Returns csv string that denotes the params which did not pass the threshold values
         @detail: A profile would fail if greater than e
@@ -217,33 +120,62 @@ using System.Collections.Concurrent;
             var total_sw = new Stopwatch();
             total_sw.Start();
 
-            _failingProfiles = new ConcurrentBag<FailingProfile>();
-
             _profileScores = _dataTable.Clone();
             foreach(var col in ColumnsOfInterest.Split(',')){
                 _profileScores.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
             
-            List<Task> tasks = new List<Task>();
-            for(int i = 0; i < tableKeys.Count(); i++)
-            {
-                var search_axis_name = tableKeys[i];
-                tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
-            }
-            
-            Task.WaitAll(tasks.ToArray());
-
-            // foreach(var search_axis in tableKeys){
-            //     checkProfilesHelper(search_axis);
+            // List<Task> tasks = new List<Task>();
+            // foreach(var search_axis_name in tableKeys)
+            // {
+            //     tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
             // }
+            
+            // Task.WaitAll(tasks.ToArray());
+
+            foreach(var search_axis_name in tableKeys)
+            {
+                checkProfilesHelper(search_axis_name);
+            }
 
             Console.WriteLine("All profile check duration: {0}", total_sw.ElapsedMilliseconds);
             total_sw.Stop();
         }
 
-        public List<FailingProfile> GetFailingProfiles(float threshold){
+        public List<FailingProfile> GetFailingProfiles(double threshold){
             var failingProfiles = new List<FailingProfile>();
 
+            if(! _profileScores.IsInitialized){
+                Console.WriteLine("Must generate profile scores before getting failing profiles");
+                return failingProfiles;
+            }
+
+            var colNames = ColumnsOfInterest.Split(',');
+            foreach(var colName in colNames){
+                var failingRows = _profileScores.Select($"{colName} > {threshold}");
+
+                foreach(var failingRow in failingRows){
+                    var fp = new FailingProfile();
+
+                    string search_axis_name = "";
+                    var tableParams = new Dictionary<string, float>();
+                    foreach(var axes_name in TableAxesValues.Keys){
+                        
+                        if(failingRow[axes_name] == DBNull.Value){
+                            search_axis_name = axes_name;
+                            tableParams.Add(axes_name, (float)failingRow[colName + OffendingValueSuffix]);
+                        }else{
+                            tableParams.Add(axes_name, (float)(double)failingRow[axes_name]);
+                        }   
+                    }
+                    fp.SearchAxis = search_axis_name;
+                    fp.ProfileColumnName = colName;
+                    fp.TableParams = tableParams;
+
+                    failingProfiles.Add(fp);
+                }
+            }
+            
             return failingProfiles;
         }
 
@@ -255,13 +187,13 @@ using System.Collections.Concurrent;
             string[] column_arr = ColumnsOfInterest.Split(',');
             var dt_copy = _dataTable.Copy();
 
-            Dictionary<string, double[]> non_search_table_axes = new Dictionary<string, double[]>();
+            var non_search_table_axes = new Dictionary<string, float[]>();
             var search_axis_vals = TableAxesValues[search_axis_name];
 
             int subarr_length = 2;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == search_axis_name) continue;
-                double[] partial_vals = new double[subarr_length];
+                float[] partial_vals = new float[subarr_length];
                 Array.Copy(pair.Value, partial_vals, subarr_length);
                 non_search_table_axes.Add(pair.Key, partial_vals);
             }
@@ -431,7 +363,7 @@ using System.Collections.Concurrent;
         }
 
         // return (metric, offending value)
-        private (float, float) fitWithPointRemovedChecker(in double[] col, in double[] search_axis, in double thresh, ref string subtitle)
+        private (float, float) fitWithPointRemovedChecker(in double[] col, in float[] search_axis, in double thresh, ref string subtitle)
         {
             if((col.Max() - col.Min()) < (1e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
             {
@@ -611,18 +543,18 @@ using System.Collections.Concurrent;
                 }
                 else if(pair.Value.GetType() == typeof(List<Object>)){
                     var obj_list = (List<Object>)pair.Value;
-                    double[] vals = new double[obj_list.Count];
+                    var vals = new float[obj_list.Count];
                     int i = 0;
                     foreach(var val in obj_list){
                         if(val.GetType() == typeof(String)){
-                            vals[i] = Convert.ToDouble(val);
+                            vals[i] = Convert.ToSingle(val);
                             i++;
                         }
                     }
                     var key = pair.Key;
                     if(pair.Key == "CurrentRatio"){
                         for(int j = 0; j<vals.Count(); j++){
-                            vals[j] *= 1e6;
+                            vals[j] *= Convert.ToSingle(1e6);
                         }
                         key = "Ipl_setpoint";
                     }
@@ -653,7 +585,7 @@ using System.Collections.Concurrent;
             return Path.Combine("/mnt/lut", file_location, yaml_filename);
         }
 
-        public Dictionary<String, double[]> TableAxesValues = new Dictionary<string, double[]>();
+        public Dictionary<String, float[]> TableAxesValues = new Dictionary<string, float[]>();
         public string TableName;
         public string ColumnsOfInterest;
         public string OffendingValueSuffix = "_offending_val";
