@@ -28,6 +28,7 @@ using System.Collections.Concurrent;
     {
         public string ProfileColumnName;
         public string SearchAxis;
+        public string FilesLocation;
         public Dictionary<string, float> TableParams;
     }
 
@@ -42,7 +43,6 @@ using System.Collections.Concurrent;
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
             verifier.GenerateProfileScores();
             verifier.GetFailingProfiles(0.5);
-            // Console.WriteLine(profile_check_result);
         }
 
         public TableVerifier(string tableName, string columnsOfInterest){
@@ -51,22 +51,6 @@ using System.Collections.Concurrent;
 
             populateTableAxesValues();
             loadTable();
-        }
-
-        public List<FailingProfile> TestFailingProfiles(){
-            FailingProfile f1 = new FailingProfile();
-            f1.ProfileColumnName = "TestName";
-            f1.SearchAxis = "TestAxis";
-
-            var tp = new Dictionary<string, float>();
-            tp.Add("a", (float)1.11);
-            f1.TableParams = tp;
-
-            var ret_list = new List<FailingProfile>();
-            ret_list.Add(f1);
-            ret_list.Add(f1);
-
-            return ret_list;
         }
 
         public int GetNumRowsInDatatable()
@@ -171,6 +155,7 @@ using System.Collections.Concurrent;
                     fp.SearchAxis = search_axis_name;
                     fp.ProfileColumnName = colName;
                     fp.TableParams = tableParams;
+                    fp.FilesLocation = getFilesLocation();
 
                     failingProfiles.Add(fp);
                 }
@@ -583,6 +568,23 @@ using System.Collections.Concurrent;
             file_location = file_location.Substring(0, file_location.Length - 6); // TODO do this in a more programtic way
 
             return Path.Combine("/mnt/lut", file_location, yaml_filename);
+        }
+
+        private string getFilesLocation()
+        {
+            string get_yaml_file_cmd_string =
+             "SELECT FilesLocation FROM gradshafranov." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
+            
+            using var _connection = new MySqlConnection(_connectionString);
+            _connection.Open();
+            using var get_yaml_file_cmd = new MySqlCommand(get_yaml_file_cmd_string, _connection);
+
+            using MySqlDataReader rdr = get_yaml_file_cmd.ExecuteReader();
+
+            rdr.Read();
+            var file_location = rdr.GetString("FilesLocation");
+
+            return file_location;
         }
 
         public Dictionary<String, float[]> TableAxesValues = new Dictionary<string, float[]>();
