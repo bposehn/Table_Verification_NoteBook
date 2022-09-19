@@ -40,8 +40,13 @@ using System.Collections.Concurrent;
     {
         public static void Main()
         {
-            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
+            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
+            // TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008");
+            var sw = new Stopwatch();
+            sw.Start();
             verifier.GenerateProfileScores();
+            Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
+            sw.Stop();
             verifier.GetFailingProfiles(0.5);
         }
 
@@ -83,7 +88,7 @@ using System.Collections.Concurrent;
             {
                 connection.Open();
                 using var get_table_cmd = new MySqlCommand(get_table_cmd_string, connection);
-                get_table_cmd.CommandTimeout = 200;
+                get_table_cmd.CommandTimeout = 500;
                 _dataTable.Load(get_table_cmd.ExecuteReader()); 
                 _dataTable.WriteXmlSchema(schemaname);
                 _dataTable.WriteXml(tablename);
@@ -101,29 +106,23 @@ using System.Collections.Concurrent;
         {
             var tableKeys = TableAxesValues.Keys.ToArray();
 
-            var total_sw = new Stopwatch();
-            total_sw.Start();
-
             _profileScores = _dataTable.Clone();
             foreach(var col in ColumnsOfInterest.Split(',')){
                 _profileScores.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
             
-            // List<Task> tasks = new List<Task>();
-            // foreach(var search_axis_name in tableKeys)
-            // {
-            //     tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
-            // }
-            
-            // Task.WaitAll(tasks.ToArray());
-
+            List<Task> tasks = new List<Task>();
             foreach(var search_axis_name in tableKeys)
             {
-                checkProfilesHelper(search_axis_name);
+                tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
             }
+            
+            Task.WaitAll(tasks.ToArray());
 
-            Console.WriteLine("All profile check duration: {0}", total_sw.ElapsedMilliseconds);
-            total_sw.Stop();
+            // foreach(var search_axis_name in tableKeys)
+            // {
+            //     checkProfilesHelper(search_axis_name);
+            // }
         }
 
         public List<FailingProfile> GetFailingProfiles(double threshold){
@@ -170,10 +169,8 @@ using System.Collections.Concurrent;
             var tableVals = TableAxesValues.Values.ToArray();
             var tableKeys = TableAxesValues.Keys.ToArray();
             string[] column_arr = ColumnsOfInterest.Split(',');
-            var dt_copy = _dataTable.Copy();
 
             var non_search_table_axes = new Dictionary<string, float[]>();
-            var search_axis_vals = TableAxesValues[search_axis_name];
 
             int subarr_length = 2;
             foreach(var pair in TableAxesValues){
@@ -183,6 +180,11 @@ using System.Collections.Concurrent;
                 non_search_table_axes.Add(pair.Key, partial_vals);
             }
 
+            // foreach(var pair in TableAxesValues){
+            //     if(pair.Key == search_axis_name) continue;
+            //     non_search_table_axes.Add(pair.Key, pair.Value);
+            // }
+
             string[] non_search_keys = non_search_table_axes.Keys.ToArray();
             if(non_search_keys.Count() != 6){
                 // error
@@ -190,8 +192,8 @@ using System.Collections.Concurrent;
 
             int its = 0;
             foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
-                // var arr0 = _dataTable.Select($"{non_search_keys[0]} = {val0}");
-                var arr0 = dt_copy.Select($"{non_search_keys[0]} = {val0}");
+
+                var arr0 = _dataTable.Select($"{non_search_keys[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
                 }
@@ -238,7 +240,7 @@ using System.Collections.Concurrent;
             foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
 
                 var arr5 = sort4.Select($"{non_search_keys[5]} = {val5}");
-                if(arr5.Length == 0){
+                if(arr5.Length < 5){
                     continue;
                 }
 
@@ -267,19 +269,18 @@ using System.Collections.Concurrent;
                     }
                 }
 
-                if(dt.Rows.Count < 5)
-                    continue;
-
                 Dictionary<string, double[]> column_vals = new Dictionary<string, double[]>();
                 foreach(string col_name in column_arr){
                     column_vals.Add(col_name, new double[dt.Rows.Count]);
                 }
 
                 int row_num = 0;
+                var search_axis_vals = new float[dt.Rows.Count];
                 foreach(DataRow row in dt.Rows){
                     foreach(var col_name in column_arr){
                         column_vals[col_name][row_num] = Convert.ToDouble(row[col_name]);
                     }
+                    search_axis_vals[row_num] = Convert.ToSingle(row[search_axis_name]);
                     row_num ++;
                 }
 
@@ -292,15 +293,29 @@ using System.Collections.Concurrent;
                 profileScoreRow[non_search_keys[4]] = val4;  
                 profileScoreRow[non_search_keys[5]] = val5;
 
-                foreach(var col_name in column_arr){
-                    var vals = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, .35, ref subtitle);
-                    var metric_score = vals.Item1;
-                    var offending_value = vals.Item2;
-
-                    profileScoreRow[col_name] = metric_score;
-                    profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
+                var conc_dict = new ConcurrentDictionary<string, float>();
+                var tasks = new List<Task>();
+                foreach(var col_name in column_arr)
+                {
+                    tasks.Add(Task.Factory.StartNew(() => 
+                        fitHelper(column_vals[col_name], search_axis_vals, ref conc_dict, col_name, ref subtitle)));
                 }
 
+                Task.WaitAll(tasks.ToArray());
+
+                foreach(var pr in conc_dict){
+                    profileScoreRow[pr.Key] = pr.Value;
+                }
+
+                // foreach(var col_name in column_arr){
+
+                //     var vals = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, ref subtitle);
+                //     var metric_score = vals.Item1;
+                //     var offending_value = vals.Item2;
+
+                //     profileScoreRow[col_name] = metric_score;
+                //     profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
+                // }
   
                 _mtx.WaitOne(); //Critical     
                 {
@@ -347,10 +362,19 @@ using System.Collections.Concurrent;
             return true;
         }
 
-        // return (metric, offending value)
-        private (float, float) fitWithPointRemovedChecker(in double[] col, in float[] search_axis, in double thresh, ref string subtitle)
+        private void fitHelper(in double[] col, in float[] search_axis, ref ConcurrentDictionary<string, float> dict, in string col_name, ref string subtitle)
         {
-            if((col.Max() - col.Min()) < (1e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
+            var vals = fitWithPointRemovedChecker(col, search_axis, ref subtitle);
+            var metric_score = vals.Item1;
+            var offending_value = vals.Item2;
+
+            dict[col_name] = metric_score;
+            dict[col_name + OffendingValueSuffix] = offending_value;
+        }
+
+        private (float, float) fitWithPointRemovedChecker(in double[] col, in float[] search_axis, ref string subtitle)
+        {
+            if((col.Max() - col.Min()) < (2e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
             {
                 return (0, 0);
             }
@@ -362,15 +386,30 @@ using System.Collections.Concurrent;
             double[] point_removed_quadratic_fit_goodness = new double[col.Count()];
 
             for(int j = 0; j < col.Count(); j++){
+
+                var sw = new Stopwatch();
+                sw.Start();
+
                 var data_with_removed_value = col.Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
                 
+                sw.Stop();
+                sw.Restart();
+
                 double[] quadratic_fit_params = Fit.Polynomial(xs, data_with_removed_value, 2);
+
+                sw.Stop();
+                sw.Restart();
+
                 var quadratic_fit_goodness = GoodnessOfFit.RSquared(xs.Select(
                     x => quadratic_fit_params[0] + quadratic_fit_params[1]*x + quadratic_fit_params[2]*Math.Pow(x, 2)), data_with_removed_value);
+                
+                sw.Stop();
+                sw.Restart();
+                
                 point_removed_quadratic_fit_goodness[j] = quadratic_fit_goodness;
             }
 
-            (double mean_fit_goodness, double std_dev) = point_removed_quadratic_fit_goodness.MeanStandardDeviation();
+            double mean_fit_goodness = point_removed_quadratic_fit_goodness.Average();
             double dist_from_best_fit_to_mean = point_removed_quadratic_fit_goodness.Max() - mean_fit_goodness;
 
             var offending_val = search_axis[Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())];
@@ -593,8 +632,8 @@ using System.Collections.Concurrent;
         public string OffendingValueSuffix = "_offending_val";
         public List<string> ProfileMetrics = new List<string>();
 
-        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
+        // private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
+        private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         private string[] _tableAxesNames = new string[]{"psieq_soak", "beta_pol1_setpoint", "psieq_dc", "NevinsA", "NevinsC", "NevinsN", "Ipl_setpoint"};
