@@ -58,6 +58,16 @@ using System.Collections.Concurrent;
             loadTable();
         }
 
+        public DataTable GetDataTable()
+        {
+            return _dataTable;
+        }
+
+        public DataTable GetProfileScoreTable()
+        {
+            return _profileScores;
+        }
+
         public int GetNumRowsInDatatable()
         {
             return _dataTable.Rows.Count;
@@ -111,6 +121,8 @@ using System.Collections.Concurrent;
                 _profileScores.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
             
+            _profileScores.BeginLoadData();
+
             List<Task> tasks = new List<Task>();
             foreach(var search_axis_name in tableKeys)
             {
@@ -123,6 +135,9 @@ using System.Collections.Concurrent;
             // {
             //     checkProfilesHelper(search_axis_name);
             // }
+
+            _profileScores.EndLoadData();
+            _profileScores.AcceptChanges();
         }
 
         public List<FailingProfile> GetFailingProfiles(double threshold){
@@ -172,7 +187,7 @@ using System.Collections.Concurrent;
 
             var non_search_table_axes = new Dictionary<string, float[]>();
 
-            int subarr_length = 2;
+            int subarr_length = 4;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == search_axis_name) continue;
                 float[] partial_vals = new float[subarr_length];
@@ -190,7 +205,6 @@ using System.Collections.Concurrent;
                 // error
             }
 
-            int its = 0;
             foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
 
                 var arr0 = _dataTable.Select($"{non_search_keys[0]} = {val0}");
@@ -240,13 +254,16 @@ using System.Collections.Concurrent;
             foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
 
                 var arr5 = sort4.Select($"{non_search_keys[5]} = {val5}");
-                if(arr5.Length < 5){
+                if(arr5.Length < 4){ // need this many for point removed quadratic fit
                     continue;
                 }
 
                 var dt = _dataTable.Clone();
                 foreach(var row in arr5)
                     dt.ImportRow(row);
+
+                // dt.DefaultView.Sort = search_axis_name;
+                // dt = dt.DefaultView.ToTable();
 
                 string subtitle = "";
 
@@ -284,7 +301,10 @@ using System.Collections.Concurrent;
                     row_num ++;
                 }
 
+                _mtx.WaitOne();
                 var profileScoreRow = _profileScores.NewRow();
+                _mtx.ReleaseMutex();
+                
                 profileScoreRow[search_axis_name] = DBNull.Value;
                 profileScoreRow[non_search_keys[0]] = val0;  
                 profileScoreRow[non_search_keys[1]] = val1;  
@@ -293,12 +313,14 @@ using System.Collections.Concurrent;
                 profileScoreRow[non_search_keys[4]] = val4;  
                 profileScoreRow[non_search_keys[5]] = val5;
 
+
+                // Can thread further, decreases exectuion time by around 20%
                 var conc_dict = new ConcurrentDictionary<string, float>();
                 var tasks = new List<Task>();
                 foreach(var col_name in column_arr)
                 {
                     tasks.Add(Task.Factory.StartNew(() => 
-                        fitHelper(column_vals[col_name], search_axis_vals, ref conc_dict, col_name, ref subtitle)));
+                        fitHelper(column_vals[col_name], search_axis_vals, ref conc_dict, col_name, ref subtitle, search_axis_name)));
                 }
 
                 Task.WaitAll(tasks.ToArray());
@@ -307,62 +329,87 @@ using System.Collections.Concurrent;
                     profileScoreRow[pr.Key] = pr.Value;
                 }
 
-                // foreach(var col_name in column_arr){
+                foreach(var col_name in column_arr){
 
-                //     var vals = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, ref subtitle);
-                //     var metric_score = vals.Item1;
-                //     var offending_value = vals.Item2;
+                    var vals = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, ref subtitle);
+                    // var vals = concavityChecker(column_vals[col_name], search_axis_vals, ref subtitle);
 
-                //     profileScoreRow[col_name] = metric_score;
-                //     profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
-                // }
+                    var metric_score = vals.Item1;
+                    var offending_value = vals.Item2;
+
+                    profileScoreRow[col_name] = metric_score;
+                    profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
+
+                    // bool plot = true;
+                    // double thresh = 0.2;
+                    //
+                    // var xs = new int[column_vals[col_name].Count()];
+                    // for(int j = 0; j < column_vals[col_name].Count(); j++){
+                    //     xs[j] = j;
+                    // }
+                    //
+                    // if(plot && metric_score > thresh)
+                    // {
+                    //     string title = $"{col_name}<br> Score: {metric_score}, Offending Value: {offending_value}, Search Axis: {search_axis_name}<br>";
+                    //     string name = $"{search_axis_name}_";
+                    //     int j = 0;
+                    //     foreach(var pr in non_search_values){
+                    //         title += $"{pr.Key} = {pr.Value} ";
+                    //         name += $"{pr.Key.Substring(0, 3)}_{String.Format("{0:0.00}", Convert.ToDouble(pr.Value))}";
+
+                    //         if(j == 3){
+                    //             title += "<br>";
+                    //         }
+
+                    //         j++;
+                    //     }
+
+
+                    //     var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(title);
+                    //     chart_y.SaveHtml($"temp/{name}");
+                    // }
+                }
   
                 _mtx.WaitOne(); //Critical     
                 {
                     _profileScores.Rows.Add(profileScoreRow);
                 }
                 _mtx.ReleaseMutex();
-
-                its ++;
             }}}}}}
         }
-
-        private bool concavityChecker(double[] col, ref string subtitle)
+            
+        private (float, float) concavityChecker(in double[] col, in float[] search_axis, ref string subtitle)
         {
+            if((col.Max() - col.Min()) < (2e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
+            {
+                return (0, 0);
+            }
+
             double[] second_derivs = new double[col.Count() - 2];
             for(int j = 1; j < col.Count() - 1; j++)
             {
                 second_derivs[j-1] = col[j-1] - 2*col[j] + col[j+1];
             }
 
-            double profile_range = col.Max() - col.Min();
-            double second_deriv_diff_thresh = .5 * profile_range; //this should maybe be scaled to each profile? or maybe the average range of each profile for a single column
-
-            int num_sign_changes = 0;
-            double prev_concavity = second_derivs[0];
-            List<double> diffs = new List<double>();
-            foreach(double second_deriv in second_derivs){
-                if((second_deriv > 0) != (prev_concavity > 0)){
-                    var diff = Math.Abs(second_deriv - prev_concavity);
-                    diffs.Add(diff);
-                    if(diff > second_deriv_diff_thresh){
-                        num_sign_changes ++;
+            double max_diff = 0;
+            int offending_index = -1;
+            for(int i = 1; i< second_derivs.Count(); i++){
+                if(!(second_derivs[i] > 0 && second_derivs[i-1] > 0 || second_derivs[i] < 0 && second_derivs[i-1] < 0 )){ // if are of different sign
+                    if(Math.Abs(second_derivs[i]-second_derivs[i-1]) > max_diff){
+                        max_diff = Math.Abs(second_derivs[i]-second_derivs[i-1]);
+                        offending_index = i;
                     }
                 }
-                prev_concavity = second_deriv;
             }
 
-            if(num_sign_changes > 1){
-                var max_diff_dist_to_avg = diffs.Max() - diffs.Average();
-                subtitle = $"Number of significant sign changes: {num_sign_changes}<br> Max difference between changed signs: {diffs.Max()}<br> Diff from max to avg difference: {max_diff_dist_to_avg}";
-            
-                return false;
+            if(offending_index == -1){
+                return(0,0);
+            }else{
+                return(Convert.ToSingle(max_diff / (col.Max() - col.Min())), search_axis[offending_index]);
             }
-
-            return true;
         }
 
-        private void fitHelper(in double[] col, in float[] search_axis, ref ConcurrentDictionary<string, float> dict, in string col_name, ref string subtitle)
+        private void fitHelper(in double[] col, in float[] search_axis, ref ConcurrentDictionary<string, float> dict, in string col_name, ref string subtitle, in string search_axis_name )
         {
             var vals = fitWithPointRemovedChecker(col, search_axis, ref subtitle);
             var metric_score = vals.Item1;
@@ -385,27 +432,15 @@ using System.Collections.Concurrent;
 
             double[] point_removed_quadratic_fit_goodness = new double[col.Count()];
 
-            for(int j = 0; j < col.Count(); j++){
-
-                var sw = new Stopwatch();
-                sw.Start();
-
+            for(int j = 0; j < col.Count(); j++)
+            {
                 var data_with_removed_value = col.Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
                 
-                sw.Stop();
-                sw.Restart();
-
                 double[] quadratic_fit_params = Fit.Polynomial(xs, data_with_removed_value, 2);
-
-                sw.Stop();
-                sw.Restart();
 
                 var quadratic_fit_goodness = GoodnessOfFit.RSquared(xs.Select(
                     x => quadratic_fit_params[0] + quadratic_fit_params[1]*x + quadratic_fit_params[2]*Math.Pow(x, 2)), data_with_removed_value);
-                
-                sw.Stop();
-                sw.Restart();
-                
+                                
                 point_removed_quadratic_fit_goodness[j] = quadratic_fit_goodness;
             }
 
@@ -637,8 +672,6 @@ using System.Collections.Concurrent;
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         private string[] _tableAxesNames = new string[]{"psieq_soak", "beta_pol1_setpoint", "psieq_dc", "NevinsA", "NevinsC", "NevinsN", "Ipl_setpoint"};
-
-        private ConcurrentBag<FailingProfile> _failingProfiles;
         private DataTable _dataTable = new DataTable();
         private DataTable _profileScores;
         private Mutex _mtx = new Mutex();
