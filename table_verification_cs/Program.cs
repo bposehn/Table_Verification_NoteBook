@@ -1,26 +1,15 @@
 ﻿using System;
 using System.IO;
 using System.Data;
-using System.Diagnostics;
-using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using MySql.Data.MySqlClient;
 using System.Threading;
-using System.IO;
-using System.Timers;
-using YamlDotNet;
-using Plotly.NET;
-using MathNet.Numerics;
-using MathNet.Numerics.Statistics;
-
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using System.Collections.Concurrent;
+
+using MySql.Data.MySqlClient;
+using MathNet.Numerics;
 
 ﻿﻿namespace TableVerification
 {
@@ -50,14 +39,21 @@ using System.Collections.Concurrent;
             verifier.GetFailingProfiles(0.5);
         }
 
-        public TableVerifier(string tableName, string columnsOfInterest){
+        public TableVerifier(string tableName, string profileNamesOfInterest){
             TableName = tableName;
-            ColumnsOfInterest = columnsOfInterest;
+            ProfileNamesOfInterest = profileNamesOfInterest;
 
             populateTableAxesValues();
             loadTable();
+            var rows = _dataTable.Select($"NevinsN = {TableAxesValues["NevinsN"][_nevinsNIndex]}");
+            var tempDatatable = _dataTable.Clone();
+            foreach(var row in rows){
+                tempDatatable.ImportRow(row);
+            }
+            _dataTable = tempDatatable;
         }
 
+        #region Getters
         public DataTable GetDataTable()
         {
             return _dataTable;
@@ -72,39 +68,7 @@ using System.Collections.Concurrent;
         {
             return _dataTable.Rows.Count;
         }
-
-        private void loadTable(){
-            string tablename = "xmltable.xml";
-            string schemaname = "schema.xsd";
-            if(File.Exists(tablename) && File.Exists(schemaname)){
-                _dataTable.ReadXmlSchema(schemaname);
-                _dataTable.ReadXml(tablename);
-                return;
-            }
-
-            var tableKeys = TableAxesValues.Keys.ToArray();
-
-            var queryColumns = "";
-            foreach(var tableKey in tableKeys){
-                queryColumns += tableKey + ", ";
-            }
-            foreach(var columnOfInterest in ColumnsOfInterest.Split(',')){
-                queryColumns += columnOfInterest + ", ";
-            }
-            queryColumns = queryColumns.Substring(0, queryColumns.Length-2);
-
-            var get_table_cmd_string = $"SELECT {queryColumns} FROM {_databaseName}.`{TableName}`";
-            using(var connection = new MySqlConnection(_connectionString))
-            {
-                connection.Open();
-                using var get_table_cmd = new MySqlCommand(get_table_cmd_string, connection);
-                get_table_cmd.CommandTimeout = 500;
-                _dataTable.Load(get_table_cmd.ExecuteReader()); 
-                _dataTable.WriteXmlSchema(schemaname);
-                _dataTable.WriteXml(tablename);
-                connection.Close();
-            }
-        }
+        #endregion
 
         /*
         @brief: Returns csv string that denotes the params which did not pass the threshold values
@@ -117,16 +81,19 @@ using System.Collections.Concurrent;
             var tableKeys = TableAxesValues.Keys.ToArray();
 
             _profileScores = _dataTable.Clone();
-            foreach(var col in ColumnsOfInterest.Split(',')){
+            foreach(var col in ProfileNamesOfInterest.Split(',')){
                 _profileScores.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
             
             _profileScores.BeginLoadData();
 
             List<Task> tasks = new List<Task>();
-            foreach(var search_axis_name in tableKeys)
+            foreach(var searchAxisName in tableKeys)
             {
-                tasks.Add(Task.Factory.StartNew(checkProfilesHelper, search_axis_name));
+                if(searchAxisName == "NevinsN")
+                    continue;
+                
+                tasks.Add(Task.Factory.StartNew(checkProfilesHelper, searchAxisName));
             }
             
             Task.WaitAll(tasks.ToArray());
@@ -148,66 +115,62 @@ using System.Collections.Concurrent;
                 return failingProfiles;
             }
 
-            var colNames = ColumnsOfInterest.Split(',');
-            foreach(var colName in colNames){
-                var failingRows = _profileScores.Select($"{colName} > {threshold}");
+            var columnNames = ProfileNamesOfInterest.Split(',');
+            foreach(var columnName in columnNames){
+                var failingRows = _profileScores.Select($"{columnName} > {threshold}");
 
                 foreach(var failingRow in failingRows){
-                    var fp = new FailingProfile();
+                    var failingProfile = new FailingProfile();
 
-                    string search_axis_name = "";
+                    string SearchAxisName = "";
                     var tableParams = new Dictionary<string, float>();
-                    foreach(var axes_name in TableAxesValues.Keys){
+                    foreach(var axisName in TableAxesValues.Keys){
                         
-                        if(failingRow[axes_name] == DBNull.Value){
-                            search_axis_name = axes_name;
-                            tableParams.Add(axes_name, (float)failingRow[colName + OffendingValueSuffix]);
+                        if(failingRow[axisName] == DBNull.Value){
+                            SearchAxisName = axisName;
+                            tableParams.Add(axisName, (float)failingRow[columnName + OffendingValueSuffix]);
                         }else{
-                            tableParams.Add(axes_name, (float)(double)failingRow[axes_name]);
+                            tableParams.Add(axisName, (float)(double)failingRow[axisName]);
                         }   
                     }
-                    fp.SearchAxis = search_axis_name;
-                    fp.ProfileColumnName = colName;
-                    fp.TableParams = tableParams;
-                    fp.FilesLocation = getFilesLocation();
+                    failingProfile.SearchAxis = SearchAxisName;
+                    failingProfile.ProfileColumnName = columnName;
+                    failingProfile.TableParams = tableParams;
+                    failingProfile.FilesLocation = getFilesLocation();
 
-                    failingProfiles.Add(fp);
+                    failingProfiles.Add(failingProfile);
                 }
             }
             
             return failingProfiles;
         }
 
-        private void checkProfilesHelper(Object search_axis_name_obj){
-            var search_axis_name = search_axis_name_obj as string;
+        private void checkProfilesHelper(Object searchAxisNameObject){
+            var searchAxisName = searchAxisNameObject as string;
 
             var tableVals = TableAxesValues.Values.ToArray();
             var tableKeys = TableAxesValues.Keys.ToArray();
-            string[] column_arr = ColumnsOfInterest.Split(',');
+            string[] profileNames = ProfileNamesOfInterest.Split(',');
 
-            var non_search_table_axes = new Dictionary<string, float[]>();
+            var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            int subarr_length = 4;
+            int subarr_length = 100;
             foreach(var pair in TableAxesValues){
-                if(pair.Key == search_axis_name) continue;
-                float[] partial_vals = new float[subarr_length];
-                Array.Copy(pair.Value, partial_vals, subarr_length);
-                non_search_table_axes.Add(pair.Key, partial_vals);
+                if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
+                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
+                float[] partial_vals = new float[arr_length];
+                Array.Copy(pair.Value, partial_vals, arr_length);
+                nonSearchTableAxes.Add(pair.Key, partial_vals);
             }
 
-            // foreach(var pair in TableAxesValues){
-            //     if(pair.Key == search_axis_name) continue;
-            //     non_search_table_axes.Add(pair.Key, pair.Value);
-            // }
-
-            string[] non_search_keys = non_search_table_axes.Keys.ToArray();
-            if(non_search_keys.Count() != 6){
+            string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
+            if(nonSearchAxisNames.Count() != 5){ // everything but NevinsN and search axis
                 // error
             }
 
-            foreach(var val0 in non_search_table_axes[non_search_keys[0]]){
+            foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]]){
 
-                var arr0 = _dataTable.Select($"{non_search_keys[0]} = {val0}");
+                var arr0 = _dataTable.Select($"{nonSearchAxisNames[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
                 }
@@ -215,8 +178,8 @@ using System.Collections.Concurrent;
                 var sort0 = _dataTable.Clone();
                 foreach(var row in arr0)
                     sort0.ImportRow(row);
-            foreach(var val1 in non_search_table_axes[non_search_keys[1]]){
-                var arr1 = sort0.Select($"{non_search_keys[1]} = {val1}");
+            foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]]){
+                var arr1 = sort0.Select($"{nonSearchAxisNames[1]} = {val1}");
                 if(arr1.Length == 0){
                     continue;
                 }
@@ -224,8 +187,8 @@ using System.Collections.Concurrent;
                 var sort1 = _dataTable.Clone();
                 foreach(var row in arr1)
                     sort1.ImportRow(row);
-            foreach(var val2 in non_search_table_axes[non_search_keys[2]]){
-                var arr2 = sort1.Select($"{non_search_keys[2]} = {val2}");
+            foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]]){
+                var arr2 = sort1.Select($"{nonSearchAxisNames[2]} = {val2}");
                 if(arr2.Length == 0){
                     continue;
                 }
@@ -233,8 +196,8 @@ using System.Collections.Concurrent;
                 var sort2 = _dataTable.Clone();
                 foreach(var row in arr2)
                     sort2.ImportRow(row);
-            foreach(var val3 in non_search_table_axes[non_search_keys[3]]){
-                var arr3 = sort2.Select($"{non_search_keys[3]} = {val3}");
+            foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]]){
+                var arr3 = sort2.Select($"{nonSearchAxisNames[3]} = {val3}");
                 if(arr3.Length == 0){
                     continue;
                 }
@@ -242,140 +205,155 @@ using System.Collections.Concurrent;
                 var sort3 = _dataTable.Clone();
                 foreach(var row in arr3)
                     sort3.ImportRow(row);
-            foreach(var val4 in non_search_table_axes[non_search_keys[4]]){
-                var arr4 = sort3.Select($"{non_search_keys[4]} = {val4}");
+            foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]]){
+                var arr4 = sort3.Select($"{nonSearchAxisNames[4]} = {val4}");
                 if(arr4.Length == 0){
                     continue;
                 }
                 
-                var sort4 = _dataTable.Clone();
+                var profilesVersusSearchAxesDatatable = _dataTable.Clone();
                 foreach(var row in arr4)
-                    sort4.ImportRow(row);
-            foreach(var val5 in non_search_table_axes[non_search_keys[5]]){
-
-                var arr5 = sort4.Select($"{non_search_keys[5]} = {val5}");
-                if(arr5.Length < 4){ // need this many for point removed quadratic fit
-                    continue;
-                }
-
-                var dt = _dataTable.Clone();
-                foreach(var row in arr5)
-                    dt.ImportRow(row);
-
-                // dt.DefaultView.Sort = search_axis_name;
-                // dt = dt.DefaultView.ToTable();
+                    profilesVersusSearchAxesDatatable.ImportRow(row);
 
                 string subtitle = "";
 
-                Dictionary<string, double> non_search_values = new Dictionary<string, double>(){
-                    {non_search_keys[0], val0},
-                    {non_search_keys[1], val1},
-                    {non_search_keys[2], val2},
-                    {non_search_keys[3], val3},
-                    {non_search_keys[4], val4},
-                    {non_search_keys[5], val5}
+                Dictionary<string, double> nonSearchAxesValues = new Dictionary<string, double>(){
+                    {nonSearchAxisNames[0], val0},
+                    {nonSearchAxisNames[1], val1},
+                    {nonSearchAxisNames[2], val2},
+                    {nonSearchAxisNames[3], val3},
+                    {nonSearchAxisNames[4], val4},
+                    {"NevinsN", TableAxesValues["NevinsN"][_nevinsNIndex]}
                 };
 
-                string table_param_values_str = "";
+                string axesValuesString = "";
                 int i = 0;
-                foreach(var pair in non_search_values){
-                    table_param_values_str += $"{pair.Key} = {pair.Value} ";
+                foreach(var pair in nonSearchAxesValues){
+                    axesValuesString += $"{pair.Key} = {pair.Value} ";
                     i++;
                     if(i%2 == 0){
-                        table_param_values_str += "<br>";
+                        axesValuesString += "<br>";
                     }
                 }
 
-                Dictionary<string, double[]> column_vals = new Dictionary<string, double[]>();
-                foreach(string col_name in column_arr){
-                    column_vals.Add(col_name, new double[dt.Rows.Count]);
+                Dictionary<string, double[]> allProfileValues = new Dictionary<string, double[]>();
+                foreach(string profileName in profileNames){
+                    allProfileValues.Add(profileName, new double[profilesVersusSearchAxesDatatable.Rows.Count]);
                 }
 
-                int row_num = 0;
-                var search_axis_vals = new float[dt.Rows.Count];
-                foreach(DataRow row in dt.Rows){
-                    foreach(var col_name in column_arr){
-                        column_vals[col_name][row_num] = Convert.ToDouble(row[col_name]);
+                int rowNum = 0;
+                var searchAxisValues = new float[profilesVersusSearchAxesDatatable.Rows.Count];
+                foreach(DataRow row in profilesVersusSearchAxesDatatable.Rows){
+                    foreach(var profileName in profileNames){
+                        allProfileValues[profileName][rowNum] = Convert.ToDouble(row[profileName]);
                     }
-                    search_axis_vals[row_num] = Convert.ToSingle(row[search_axis_name]);
-                    row_num ++;
+                    searchAxisValues[rowNum] = Convert.ToSingle(row[searchAxisName]);
+                    rowNum ++;
                 }
 
                 _mtx.WaitOne();
                 var profileScoreRow = _profileScores.NewRow();
                 _mtx.ReleaseMutex();
                 
-                profileScoreRow[search_axis_name] = DBNull.Value;
-                profileScoreRow[non_search_keys[0]] = val0;  
-                profileScoreRow[non_search_keys[1]] = val1;  
-                profileScoreRow[non_search_keys[2]] = val2;  
-                profileScoreRow[non_search_keys[3]] = val3;  
-                profileScoreRow[non_search_keys[4]] = val4;  
-                profileScoreRow[non_search_keys[5]] = val5;
+                profileScoreRow[searchAxisName] = DBNull.Value;
+                foreach(var pr in nonSearchAxesValues){
+                    profileScoreRow[pr.Key] = pr.Value;
+                }
 
-
-                // Can thread further, decreases exectuion time by around 20%
-                var conc_dict = new ConcurrentDictionary<string, float>();
+                var profileScores = new ConcurrentDictionary<string, float>();
                 var tasks = new List<Task>();
-                foreach(var col_name in column_arr)
+                foreach(var profileName in profileNames)
                 {
                     tasks.Add(Task.Factory.StartNew(() => 
-                        fitHelper(column_vals[col_name], search_axis_vals, ref conc_dict, col_name, ref subtitle, search_axis_name)));
+                        fitHelper(allProfileValues[profileName], searchAxisValues, profileName, searchAxisName, ref profileScores, ref subtitle)));
                 }
 
                 Task.WaitAll(tasks.ToArray());
 
-                foreach(var pr in conc_dict){
-                    profileScoreRow[pr.Key] = pr.Value;
+                foreach(var pair in profileScores){
+                    profileScoreRow[pair.Key] = pair.Value;
                 }
 
-                foreach(var col_name in column_arr){
+                // foreach(var col_name in column_arr){
 
-                    var vals = fitWithPointRemovedChecker(column_vals[col_name], search_axis_vals, ref subtitle);
-                    // var vals = concavityChecker(column_vals[col_name], search_axis_vals, ref subtitle);
+                //     var vals = getBestToMeanPointRemovedFit(column_vals[col_name], search_axis_vals, ref subtitle);
+                //     // var vals = concavityChecker(column_vals[col_name], search_axis_vals, ref subtitle);
 
-                    var metric_score = vals.Item1;
-                    var offending_value = vals.Item2;
+                //     var metric_score = vals.Item1;
+                //     var offending_value = vals.Item2;
 
-                    profileScoreRow[col_name] = metric_score;
-                    profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
+                //     profileScoreRow[col_name] = metric_score;
+                //     profileScoreRow[col_name + OffendingValueSuffix] = offending_value;
 
-                    // bool plot = true;
-                    // double thresh = 0.2;
-                    //
-                    // var xs = new int[column_vals[col_name].Count()];
-                    // for(int j = 0; j < column_vals[col_name].Count(); j++){
-                    //     xs[j] = j;
-                    // }
-                    //
-                    // if(plot && metric_score > thresh)
-                    // {
-                    //     string title = $"{col_name}<br> Score: {metric_score}, Offending Value: {offending_value}, Search Axis: {search_axis_name}<br>";
-                    //     string name = $"{search_axis_name}_";
-                    //     int j = 0;
-                    //     foreach(var pr in non_search_values){
-                    //         title += $"{pr.Key} = {pr.Value} ";
-                    //         name += $"{pr.Key.Substring(0, 3)}_{String.Format("{0:0.00}", Convert.ToDouble(pr.Value))}";
+                //     // bool plot = true;
+                //     // double thresh = 0.2;
+                //     //
+                //     // var xs = new int[column_vals[col_name].Count()];
+                //     // for(int j = 0; j < column_vals[col_name].Count(); j++){
+                //     //     xs[j] = j;
+                //     // }
+                //     //
+                //     // if(plot && metric_score > thresh)
+                //     // {
+                //     //     string title = $"{col_name}<br> Score: {metric_score}, Offending Value: {offending_value}, Search Axis: {search_axis_name}<br>";
+                //     //     string name = $"{search_axis_name}_";
+                //     //     int j = 0;
+                //     //     foreach(var pr in non_search_values){
+                //     //         title += $"{pr.Key} = {pr.Value} ";
+                //     //         name += $"{pr.Key.Substring(0, 3)}_{String.Format("{0:0.00}", Convert.ToDouble(pr.Value))}";
 
-                    //         if(j == 3){
-                    //             title += "<br>";
-                    //         }
+                //     //         if(j == 3){
+                //     //             title += "<br>";
+                //     //         }
 
-                    //         j++;
-                    //     }
+                //     //         j++;
+                //     //     }
 
 
-                    //     var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(title);
-                    //     chart_y.SaveHtml($"temp/{name}");
-                    // }
-                }
+                //     //     var chart_y = Chart2D.Chart.Line<int, double, string>(xs, column_vals[col_name]).WithTitle(title);
+                //     //     chart_y.SaveHtml($"temp/{name}");
+                //     // }
+                // }
   
                 _mtx.WaitOne(); //Critical     
                 {
                     _profileScores.Rows.Add(profileScoreRow);
                 }
                 _mtx.ReleaseMutex();
-            }}}}}}
+            }}}}}
+        }
+
+                private void loadTable(){
+            string tableName = "xmltable.xml";
+            string schemaName = "schema.xsd";
+            if(File.Exists(tableName) && File.Exists(schemaName)){
+                _dataTable.ReadXmlSchema(schemaName);
+                _dataTable.ReadXml(tableName);
+                return;
+            }
+
+            var tableKeys = TableAxesValues.Keys.ToArray();
+
+            var queryColumns = "";
+            foreach(var tableKey in tableKeys){
+                queryColumns += tableKey + ", ";
+            }
+            foreach(var columnOfInterest in ProfileNamesOfInterest.Split(',')){
+                queryColumns += columnOfInterest + ", ";
+            }
+            queryColumns = queryColumns.Substring(0, queryColumns.Length-2);
+
+            var getTableCommandString = $"SELECT {queryColumns} FROM {_databaseName}.`{TableName}`";
+            using(var connection = new MySqlConnection(_connectionString))
+            {
+                connection.Open();
+                using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
+                getTableCommand.CommandTimeout = 500;
+                _dataTable.Load(getTableCommand.ExecuteReader()); 
+                _dataTable.WriteXmlSchema(schemaName);
+                _dataTable.WriteXml(tableName);
+                connection.Close();
+            }
         }
             
         private (float, float) concavityChecker(in double[] col, in float[] search_axis, ref string subtitle)
@@ -409,32 +387,31 @@ using System.Collections.Concurrent;
             }
         }
 
-        private void fitHelper(in double[] col, in float[] search_axis, ref ConcurrentDictionary<string, float> dict, in string col_name, ref string subtitle, in string search_axis_name )
+        private void fitHelper(in double[] profileValues, in float[] searchAxisValues, in string profileName, in string searchAxisName, ref ConcurrentDictionary<string, float> profileScores, ref string subtitle)
         {
-            var vals = fitWithPointRemovedChecker(col, search_axis, ref subtitle);
-            var metric_score = vals.Item1;
-            var offending_value = vals.Item2;
+            (float metricScore, float offendingSearchAxisValue) = getBestToMeanPointRemovedFit(profileValues, searchAxisValues, ref subtitle);
 
-            dict[col_name] = metric_score;
-            dict[col_name + OffendingValueSuffix] = offending_value;
+            profileScores[profileName] = metricScore;
+            profileScores[profileName + OffendingValueSuffix] = offendingSearchAxisValue;
         }
 
-        private (float, float) fitWithPointRemovedChecker(in double[] col, in float[] search_axis, ref string subtitle)
+        private (float, float) getBestToMeanPointRemovedFit(in double[] profileValues, in float[] searchAxisValues, ref string subtitle)
         {
-            if((col.Max() - col.Min()) < (2e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
-            {
+            if((profileValues.Max() - profileValues.Min()) < (_minProfileRange * profileValues.Max())) // if range is less than 1.5% of range then don't bother checking
                 return (0, 0);
-            }
 
-            var xs = new double[col.Count()-1];
-            for(int i = 0; i < col.Count()-1; i++)
+            if(profileValues.Count() < 5)
+                return (0, 0);
+
+            var xs = new double[profileValues.Count()-1];
+            for(int i = 0; i < profileValues.Count()-1; i++)
                 xs[i] = Convert.ToDouble(i);
 
-            double[] point_removed_quadratic_fit_goodness = new double[col.Count()];
+            double[] point_removed_quadratic_fit_goodness = new double[profileValues.Count()];
 
-            for(int j = 0; j < col.Count(); j++)
+            for(int j = 0; j < profileValues.Count(); j++)
             {
-                var data_with_removed_value = col.Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
+                var data_with_removed_value = profileValues.Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
                 
                 double[] quadratic_fit_params = Fit.Polynomial(xs, data_with_removed_value, 2);
 
@@ -447,7 +424,7 @@ using System.Collections.Concurrent;
             double mean_fit_goodness = point_removed_quadratic_fit_goodness.Average();
             double dist_from_best_fit_to_mean = point_removed_quadratic_fit_goodness.Max() - mean_fit_goodness;
 
-            var offending_val = search_axis[Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())];
+            var offending_val = searchAxisValues[Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())];
 
             return ((float)dist_from_best_fit_to_mean, (float)offending_val);
         }
@@ -474,7 +451,7 @@ using System.Collections.Concurrent;
         private bool hasAnyNulls()
         {
             string where_clause = "";
-            var col_names = getColumnNames();
+            var col_names = getTableColumnNames();
 
             foreach(var col_name in col_names){
                 where_clause += col_name + " IS NULL OR ";
@@ -501,47 +478,36 @@ using System.Collections.Concurrent;
 
         private int getNumRows()
         {
-            string get_num_rows_cmd_string = "SELECT COUNT(*) FROM gradshafranov.`" + TableName + "`";
+            string getNumberOfRowsCommandString = "SELECT COUNT(*) FROM gradshafranov.`" + TableName + "`";
 
             using var _connection = new MySqlConnection(_connectionString);
             _connection.Open();
-            using (var get_num_rows_cmd = new MySqlCommand(get_num_rows_cmd_string, _connection))
+            using (var getNumberOfRowsCommand = new MySqlCommand(getNumberOfRowsCommandString, _connection))
             {
-                using var rdr = get_num_rows_cmd.ExecuteReader();
+                using var rdr = getNumberOfRowsCommand.ExecuteReader();
                 rdr.Read();
                 var ret = rdr.GetInt32(0);
                 return ret;
             }
         }
 
-        private string[] getColumnNames(){
+        private string[] getTableColumnNames(){
 
-            string get_num_columns_cmd_string = "SELECT COUNT(*) `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='GradShafranov' AND `TABLE_NAME`='pi3b_asbuilt_pfc17500ab_2022-06-09'";
-            int num_columns;
+            var tableColumnNames = new List<string>();
 
+            string getColumnNamesCommandString = "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='GradShafranov' AND `TABLE_NAME`='pi3b_asbuilt_pfc17500ab_2022-06-09'";
+            
             using var _connection = new MySqlConnection(_connectionString);
             _connection.Open();
-            using(var get_num_columns_cmd = new MySqlCommand(get_num_columns_cmd_string, _connection))
+            using(var getColumnsCommand = new MySqlCommand(getColumnNamesCommandString, _connection))
             {
-                using var rdr = get_num_columns_cmd.ExecuteReader();
-                rdr.Read();
-                num_columns = rdr.GetInt32(0);
-            }
-
-            string[] col_names = new string[num_columns];
-
-            string get_columns_cmd_string = "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='GradShafranov' AND `TABLE_NAME`='pi3b_asbuilt_pfc17500ab_2022-06-09'";
-            using(var get_columns_cmd = new MySqlCommand(get_columns_cmd_string, _connection))
-            {
-                int i = 0;
-                using var rdr = get_columns_cmd.ExecuteReader();
+                using var rdr = getColumnsCommand.ExecuteReader();
                 while(rdr.Read()){
-                    col_names[i] = rdr.GetString(0);
-                    i++;
+                    tableColumnNames.Append(rdr.GetString(0));
                 }
             }
 
-            return col_names;
+            return tableColumnNames.ToArray();
         }
 
         private void createTableAxesIndex()
@@ -577,23 +543,22 @@ using System.Collections.Concurrent;
 
         private void populateTableAxesValues()
         {
-            string yaml_file_name = getYamlFilename();
+            string tableAxesYamlFilename = getTableAxesYamlFilename();
 
             var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance).Build();
 
-            string yaml_text = "";
+            string yamlText = "";
 
-            if(File.Exists(yaml_file_name)){
-                yaml_text = File.ReadAllText(yaml_file_name);
+            if(File.Exists(tableAxesYamlFilename)){
+                yamlText = File.ReadAllText(tableAxesYamlFilename);
             }else{
                 return;
                 // TODO add error handling
             }
 
-            // Could just take the next 7 lines
-            yaml_text = yaml_text.Substring(yaml_text.IndexOf("table_axes:"), yaml_text.IndexOf("num_equilibria:") - yaml_text.IndexOf("table_axes:"));
+            yamlText = yamlText.Substring(yamlText.IndexOf("table_axes:"), yamlText.IndexOf("num_equilibria:") - yamlText.IndexOf("table_axes:"));
 
-            var content = deserializer.Deserialize<YamlConfig>(yaml_text);
+            var content = deserializer.Deserialize<YamlConfig>(yamlText);
 
             foreach(var pair in content.table_axes){
                 if(pair.Value.GetType() == typeof(String)){
@@ -625,55 +590,59 @@ using System.Collections.Concurrent;
             }
         }
 
-        private string getYamlFilename()
+        private string getTableAxesYamlFilename()
         {
-            string get_yaml_file_cmd_string =
+            string getTableAxesYamlFilenameCommandString =
              "SELECT YamlFilename, FilesLocation FROM gradshafranov." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
             
-            using var _connection = new MySqlConnection(_connectionString);
-            _connection.Open();
-            using var get_yaml_file_cmd = new MySqlCommand(get_yaml_file_cmd_string, _connection);
+            using var connection = new MySqlConnection(_connectionString);
+            connection.Open();
+            using var getTableAxesYamlFilenameCommand = new MySqlCommand(getTableAxesYamlFilenameCommandString, connection);
 
-            using MySqlDataReader rdr = get_yaml_file_cmd.ExecuteReader();
+            using MySqlDataReader reader = getTableAxesYamlFilenameCommand.ExecuteReader();
 
-            rdr.Read();
-            string yaml_filename = rdr.GetString("YamlFilename");
-            var file_location = rdr.GetString("FilesLocation");
-            file_location = file_location.Substring(0, file_location.Length - 6); // TODO do this in a more programtic way
+            reader.Read();
+            var tableAxesYamlFilename = reader.GetString("YamlFilename");
+            var fileLocation = reader.GetString("FilesLocation");
+            fileLocation = fileLocation.Substring(0, fileLocation.Length - 6);
 
-            return Path.Combine("/mnt/lut", file_location, yaml_filename);
+            return Path.Combine(Environment.GetEnvironmentVariable("FS_ARCHIVE_ROOT"), fileLocation, tableAxesYamlFilename); // TODO make this agnostic
         }
 
         private string getFilesLocation()
         {
-            string get_yaml_file_cmd_string =
+            string getFilesLoationCommandString =
              "SELECT FilesLocation FROM gradshafranov." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
             
-            using var _connection = new MySqlConnection(_connectionString);
-            _connection.Open();
-            using var get_yaml_file_cmd = new MySqlCommand(get_yaml_file_cmd_string, _connection);
+            using var connection = new MySqlConnection(_connectionString);
+            connection.Open();
+            using var getFilesLoationCommand = new MySqlCommand(getFilesLoationCommandString, connection);
 
-            using MySqlDataReader rdr = get_yaml_file_cmd.ExecuteReader();
+            using MySqlDataReader reader = getFilesLoationCommand.ExecuteReader();
 
-            rdr.Read();
-            var file_location = rdr.GetString("FilesLocation");
+            reader.Read();
+            var filesLocation = reader.GetString("FilesLocation");
 
-            return file_location;
+            return filesLocation;
         }
 
+        #region Public Members
         public Dictionary<String, float[]> TableAxesValues = new Dictionary<string, float[]>();
         public string TableName;
-        public string ColumnsOfInterest;
+        public string ProfileNamesOfInterest;
         public string OffendingValueSuffix = "_offending_val";
-        public List<string> ProfileMetrics = new List<string>();
+        #endregion
 
+        #region Private Members
         // private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
         private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
-        private string[] _tableAxesNames = new string[]{"psieq_soak", "beta_pol1_setpoint", "psieq_dc", "NevinsA", "NevinsC", "NevinsN", "Ipl_setpoint"};
         private DataTable _dataTable = new DataTable();
         private DataTable _profileScores;
         private Mutex _mtx = new Mutex();
+        private const int _nevinsNIndex = 1;
+        private const double _minProfileRange = 2e-2; // Threshold for minimum profile range as fraction of the profiles maximum
+        #endregion
     }
 }
