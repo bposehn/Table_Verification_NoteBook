@@ -31,18 +31,17 @@ using MathNet.Numerics;
         {
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
 
-            // Check profiles
-            // var sw = new Stopwatch();
-            // sw.Start();
+            var sw = new Stopwatch();
+            sw.Start();
+
+            // // Check profiles
             // verifier.GenerateProfileScores();
             // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
             // sw.Stop();
             // verifier.GetFailingProfiles(0.5);
 
-            // Check holes
-            var sw = new Stopwatch();
-            sw.Start();
-            var failingTests = verifier.CheckForHoles();
+            // // Check holes
+            Dictionary<string, float>[] failingTests = verifier.CheckForHoles();
             sw.Stop();
             Console.WriteLine($"{sw.ElapsedMilliseconds}, {failingTests.Count()}");
         }
@@ -74,8 +73,7 @@ using MathNet.Numerics;
 
         public Dictionary<string, float>[] CheckForHoles()
         {
-            // maybe remove everything but table axes values? 
-
+            // Reduce table to contain only table axes
             string[] selectedColumns = TableAxesValues.Keys.ToArray();
             DataTable dt = new DataView(_dataTable).ToTable(false, selectedColumns);
 
@@ -85,48 +83,28 @@ using MathNet.Numerics;
             foreach(var searchAxisName in TableAxesValues.Keys.ToArray())
             {
                 tasks.Add(Task.Factory.StartNew(() => 
-                    holeCheckHelper(searchAxisName, dt, ref missingTableAxisCombinations)));
+                    checkForHolesHelper(searchAxisName, dt, ref missingTableAxisCombinations)));
             }
             Task.WaitAll(tasks.ToArray());
-
-            // foreach(var searchAxisName in TableAxesValues.Keys.ToArray())
-            // {
-            //     holeCheckHelper(searchAxisName, ref missingTableAxisCombinations);
-            // }
 
             return missingTableAxisCombinations.ToArray();
 
         }
 
-        private void holeCheckHelper(in string searchAxisName, in DataTable table, ref ConcurrentBag<Dictionary<string, float>> missingTableAxisCombinations)
+        private void checkForHolesHelper(in string searchAxisName, in DataTable table, ref ConcurrentBag<Dictionary<string, float>> missingTableAxisCombinations)
         {
-            var tableVals = TableAxesValues.Values.ToArray();
-            var tableKeys = TableAxesValues.Keys.ToArray();
-
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-
-            // foreach(var pair in TableAxesValues){
-            //     if(pair.Key == searchAxisName) continue;
-            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
-            // }
-
-            int subarr_length = 2;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName) continue;
-                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
-                float[] partial_vals = new float[arr_length];
-                Array.Copy(pair.Value, partial_vals, arr_length);
-                nonSearchTableAxes.Add(pair.Key, partial_vals);
+                nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
-            if(nonSearchAxisNames.Count() != 6){ // everything but search axis
-                // error
-            }
-
-            foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]]){
-
+            
+            // Check all combinations of table parameters for the current search axis
+            foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]])
+            {
                 var arr0 = table.Select($"{nonSearchAxisNames[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
@@ -135,9 +113,9 @@ using MathNet.Numerics;
                 var select0 = table.Clone();
                 foreach(var row in arr0)
                     select0.ImportRow(row);
-            
-            foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]]){
 
+            foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]])
+            {
                 var arr1 = select0.Select($"{nonSearchAxisNames[1]} = {val1}");
                 if(arr1.Length == 0){
                     continue;
@@ -147,8 +125,8 @@ using MathNet.Numerics;
                 foreach(var row in arr1)
                     select1.ImportRow(row);
 
-            foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]]){
-
+            foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]])
+            {
                 var arr2 = select1.Select($"{nonSearchAxisNames[2]} = {val2}");
                 if(arr2.Length == 0){
                     continue;
@@ -158,8 +136,8 @@ using MathNet.Numerics;
                 foreach(var row in arr2)
                     select2.ImportRow(row);
 
-            foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]]){
-
+            foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]])
+            {
                 var arr3 = select2.Select($"{nonSearchAxisNames[3]} = {val3}");
                 if(arr3.Length == 0){
                     continue;
@@ -169,8 +147,8 @@ using MathNet.Numerics;
                 foreach(var row in arr3)
                     select3.ImportRow(row);
 
-            foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]]){
-
+            foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]])
+            {
                 var arr4 = select3.Select($"{nonSearchAxisNames[4]} = {val4}");
                 if(arr4.Length == 0){
                     continue;
@@ -180,39 +158,42 @@ using MathNet.Numerics;
                 foreach(var row in arr4)
                     select4.ImportRow(row);
 
-            foreach(var val5 in nonSearchTableAxes[nonSearchAxisNames[5]]){
-
+            foreach(var val5 in nonSearchTableAxes[nonSearchAxisNames[5]])
+            {
                 var arr5 = select4.Select($"{nonSearchAxisNames[5]} = {val5}");
                 if(arr5.Length == 0){
                     continue;
                 }
                 
                 var select5 = table.Clone();
-                foreach(var row in arr0)
+                foreach(var row in arr5)
                     select5.ImportRow(row);
 
-                // var dataExistsAtSearchAxisValue = new bool[TableAxesValues[searchAxisName].Count()];
-                // for(int i = 0; i < TableAxesValues[searchAxisName].Count(); i++){
-                //     var selectSearchAxisVal = select5.Select($"{searchAxisName} = {TableAxesValues[searchAxisName][i]}");
-                //     dataExistsAtSearchAxisValue[i] = selectSearchAxisVal.Count() > 0;
-                // }
+                // Check if values exist for the the search axis with the other table values
+                var dataExistsAtSearchAxisValue = new bool[TableAxesValues[searchAxisName].Count()];
+                for(int i = 0; i < TableAxesValues[searchAxisName].Count(); i++)
+                {
+                    var selectSearchAxisVal = select5.Select($"{searchAxisName} = {TableAxesValues[searchAxisName][i]}");
+                    dataExistsAtSearchAxisValue[i] = selectSearchAxisVal.Count() > 0;
+                }
 
-                // for(int i = 1; i < dataExistsAtSearchAxisValue.Count() - 1; i++)
-                // {
-                //     if(dataExistsAtSearchAxisValue[i-1] && ! dataExistsAtSearchAxisValue[i] && dataExistsAtSearchAxisValue[i+1])
-                //     {
-                //         var holeTableAxisValues = new Dictionary<string, float>();
-                //         holeTableAxisValues[nonSearchAxisNames[0]] = val0;
-                //         holeTableAxisValues[nonSearchAxisNames[1]] = val1;
-                //         holeTableAxisValues[nonSearchAxisNames[2]] = val2;
-                //         holeTableAxisValues[nonSearchAxisNames[3]] = val3;
-                //         holeTableAxisValues[nonSearchAxisNames[4]] = val4;
-                //         holeTableAxisValues[nonSearchAxisNames[5]] = val5;
-                //         holeTableAxisValues[searchAxisName] = TableAxesValues[searchAxisName][i];
+                // Find holes in form Exists -> Does Not Exist -> Exists
+                for(int i = 1; i < dataExistsAtSearchAxisValue.Count() - 1; i++)
+                {
+                    if(dataExistsAtSearchAxisValue[i-1] && ! dataExistsAtSearchAxisValue[i] && dataExistsAtSearchAxisValue[i+1])
+                    {
+                        var holeTableAxisValues = new Dictionary<string, float>();
+                        holeTableAxisValues[nonSearchAxisNames[0]] = val0;
+                        holeTableAxisValues[nonSearchAxisNames[1]] = val1;
+                        holeTableAxisValues[nonSearchAxisNames[2]] = val2;
+                        holeTableAxisValues[nonSearchAxisNames[3]] = val3;
+                        holeTableAxisValues[nonSearchAxisNames[4]] = val4;
+                        holeTableAxisValues[nonSearchAxisNames[5]] = val5;
+                        holeTableAxisValues[searchAxisName] = TableAxesValues[searchAxisName][i];
 
-                //         missingTableAxisCombinations.Add(holeTableAxisValues);
-                //     }
-                // }
+                        missingTableAxisCombinations.Add(holeTableAxisValues);
+                    }
+                }
                 
             }}}}}}
         }
