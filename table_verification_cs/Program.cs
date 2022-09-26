@@ -30,7 +30,6 @@ using MathNet.Numerics;
         public static void Main()
         {
     
-            // // TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
 
             var sw = new Stopwatch();
@@ -79,8 +78,6 @@ using MathNet.Numerics;
             string[] selectedColumns = TableAxesValues.Keys.ToArray();
             DataTable justTableAxesTable = new DataView(_dataTable).ToTable(false, selectedColumns);
 
-            Console.WriteLine("1");
-
             DataTable holeAxesValuesTable = _dataTable.Clone();
             holeAxesValuesTable.BeginLoadData();
 
@@ -103,19 +100,19 @@ using MathNet.Numerics;
             var searchAxisName = searchAxisNameObj as string;
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            foreach(var pair in TableAxesValues){
-                if(pair.Key == searchAxisName) continue;
-                nonSearchTableAxes.Add(pair.Key, pair.Value);
-            }
-
-            // int subarr_length = 2;
             // foreach(var pair in TableAxesValues){
             //     if(pair.Key == searchAxisName) continue;
-            //     int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
-            //     float[] partial_vals = new float[arr_length];
-            //     Array.Copy(pair.Value, partial_vals, arr_length);
-            //     nonSearchTableAxes.Add(pair.Key, partial_vals);
+            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
             // }
+
+            int subarr_length = 2;
+            foreach(var pair in TableAxesValues){
+                if(pair.Key == searchAxisName) continue;
+                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
+                float[] partial_vals = new float[arr_length];
+                Array.Copy(pair.Value, partial_vals, arr_length);
+                nonSearchTableAxes.Add(pair.Key, partial_vals);
+            }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
             
@@ -265,11 +262,11 @@ using MathNet.Numerics;
             }
 
             var columnNames = ProfileNamesOfInterest.Split(',');
-            foreach(var columnName in columnNames){
+            foreach(var columnName in columnNames)
+            {
                 var failingRows = _profileScoresDataTable.Select($"{columnName} > {threshold}");
-
-    
-                foreach(var failingRow in failingRows){
+                foreach(var failingRow in failingRows)
+                {
                     var failingProfile = new FailingProfile();
 
                     string SearchAxisName = "";
@@ -302,19 +299,19 @@ using MathNet.Numerics;
 
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            // int subarr_length = 5;
-            // foreach(var pair in TableAxesValues){
-            //     if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-            //     int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
-            //     float[] partial_vals = new float[arr_length];
-            //     Array.Copy(pair.Value, partial_vals, arr_length);
-            //     nonSearchTableAxes.Add(pair.Key, partial_vals);
-            // }
-
+            int subarr_length = 3;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-                nonSearchTableAxes.Add(pair.Key, pair.Value);
+                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
+                float[] partial_vals = new float[arr_length];
+                Array.Copy(pair.Value, partial_vals, arr_length);
+                nonSearchTableAxes.Add(pair.Key, partial_vals);
             }
+
+            // foreach(var pair in TableAxesValues){
+            //     if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
+            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
+            // }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
             if(nonSearchAxisNames.Count() != 5){ // everything but NevinsN and search axis
@@ -414,6 +411,7 @@ using MathNet.Numerics;
                 }
 
                 var profileScores = new ConcurrentDictionary<string, float>();
+
                 var tasks = new List<Task>();
                 string searchAxisNameCopy = searchAxisName;
                 foreach(var profileName in profileNames)
@@ -717,7 +715,12 @@ using MathNet.Numerics;
         // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
+        
+        // Contains all data from the table
         private DataTable _dataTable = new DataTable();
+
+        // Has columns for each table axis, for each profile name denoting the best to mean fit difference, another for each
+        // profile denoting the table axis value which resulted in the best fit with that point removed
         private DataTable _profileScoresDataTable;    
         private Mutex _mtx = new Mutex();
         private const int _nevinsNIndex = 1;
