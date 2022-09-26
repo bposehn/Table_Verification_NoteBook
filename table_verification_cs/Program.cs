@@ -29,21 +29,23 @@ using MathNet.Numerics;
     {
         public static void Main()
         {
+    
+            // // TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
 
             var sw = new Stopwatch();
             sw.Start();
 
-            // // Check profiles
-            // verifier.GenerateProfileScores();
-            // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
-            // sw.Stop();
-            // verifier.GetFailingProfiles(0.5);
+            // Check profiles
+            verifier.GenerateProfileScores();
+            Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
+            sw.Stop();
+            var failing_profiles = verifier.GetFailingProfiles(0.5);
 
             // // Check holes
-            Dictionary<string, float>[] failingTests = verifier.CheckForHoles();
-            sw.Stop();
-            Console.WriteLine($"{sw.ElapsedMilliseconds}, {failingTests.Count()}");
+            // DataTable failing = verifier.CheckForHoles();
+            // sw.Stop();
+            // Console.WriteLine($"{sw.ElapsedMilliseconds}");
         }
 
         public TableVerifier(string tableName, string profileNamesOfInterest){
@@ -62,7 +64,7 @@ using MathNet.Numerics;
 
         public DataTable GetProfileScoreTable()
         {
-            return _profileScores;
+            return _profileScoresDataTable;
         }
 
         public int GetNumRowsInDatatable()
@@ -71,28 +73,34 @@ using MathNet.Numerics;
         }
         #endregion
 
-        public Dictionary<string, float>[] CheckForHoles()
+        public DataTable CheckForHoles()
         {
             // Reduce table to contain only table axes
             string[] selectedColumns = TableAxesValues.Keys.ToArray();
-            DataTable dt = new DataView(_dataTable).ToTable(false, selectedColumns);
+            DataTable justTableAxesTable = new DataView(_dataTable).ToTable(false, selectedColumns);
 
-            var missingTableAxisCombinations = new ConcurrentBag<Dictionary<string, float>>();
+            Console.WriteLine("1");
+
+            DataTable holeAxesValuesTable = _dataTable.Clone();
+            holeAxesValuesTable.BeginLoadData();
 
             var tasks = new List<Task>();
             foreach(var searchAxisName in TableAxesValues.Keys.ToArray())
             {
-                tasks.Add(Task.Factory.StartNew(() => 
-                    checkForHolesHelper(searchAxisName, dt, ref missingTableAxisCombinations)));
+                tasks.Add(Task.Factory.StartNew(() => checkForHolesHelper(searchAxisName, justTableAxesTable, ref holeAxesValuesTable)));
             }
+
             Task.WaitAll(tasks.ToArray());
 
-            return missingTableAxisCombinations.ToArray();
+            holeAxesValuesTable.EndLoadData();
+            holeAxesValuesTable.AcceptChanges();
 
+            return holeAxesValuesTable;
         }
 
-        private void checkForHolesHelper(in string searchAxisName, in DataTable table, ref ConcurrentBag<Dictionary<string, float>> missingTableAxisCombinations)
+        private void checkForHolesHelper(object searchAxisNameObj, in DataTable justTableAxesTable, ref DataTable holeAxesValuesTable)
         {
+            var searchAxisName = searchAxisNameObj as string;
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
             foreach(var pair in TableAxesValues){
@@ -100,17 +108,26 @@ using MathNet.Numerics;
                 nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
 
+            // int subarr_length = 2;
+            // foreach(var pair in TableAxesValues){
+            //     if(pair.Key == searchAxisName) continue;
+            //     int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
+            //     float[] partial_vals = new float[arr_length];
+            //     Array.Copy(pair.Value, partial_vals, arr_length);
+            //     nonSearchTableAxes.Add(pair.Key, partial_vals);
+            // }
+
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
             
             // Check all combinations of table parameters for the current search axis
             foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]])
             {
-                var arr0 = table.Select($"{nonSearchAxisNames[0]} = {val0}");
+                var arr0 = justTableAxesTable.Select($"{nonSearchAxisNames[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
                 }
                 
-                var select0 = table.Clone();
+                var select0 = justTableAxesTable.Clone();
                 foreach(var row in arr0)
                     select0.ImportRow(row);
 
@@ -121,7 +138,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var select1 = table.Clone();
+                var select1 = justTableAxesTable.Clone();
                 foreach(var row in arr1)
                     select1.ImportRow(row);
 
@@ -132,7 +149,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var select2 = table.Clone();
+                var select2 = justTableAxesTable.Clone();
                 foreach(var row in arr2)
                     select2.ImportRow(row);
 
@@ -143,7 +160,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var select3 = table.Clone();
+                var select3 = justTableAxesTable.Clone();
                 foreach(var row in arr3)
                     select3.ImportRow(row);
 
@@ -154,7 +171,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var select4 = table.Clone();
+                var select4 = justTableAxesTable.Clone();
                 foreach(var row in arr4)
                     select4.ImportRow(row);
 
@@ -165,7 +182,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var select5 = table.Clone();
+                var select5 = justTableAxesTable.Clone();
                 foreach(var row in arr5)
                     select5.ImportRow(row);
 
@@ -182,44 +199,44 @@ using MathNet.Numerics;
                 {
                     if(dataExistsAtSearchAxisValue[i-1] && ! dataExistsAtSearchAxisValue[i] && dataExistsAtSearchAxisValue[i+1])
                     {
-                        var holeTableAxisValues = new Dictionary<string, float>();
-                        holeTableAxisValues[nonSearchAxisNames[0]] = val0;
-                        holeTableAxisValues[nonSearchAxisNames[1]] = val1;
-                        holeTableAxisValues[nonSearchAxisNames[2]] = val2;
-                        holeTableAxisValues[nonSearchAxisNames[3]] = val3;
-                        holeTableAxisValues[nonSearchAxisNames[4]] = val4;
-                        holeTableAxisValues[nonSearchAxisNames[5]] = val5;
-                        holeTableAxisValues[searchAxisName] = TableAxesValues[searchAxisName][i];
+                        _mtx.WaitOne();
+                        {
+                            var holeRow = holeAxesValuesTable.NewRow();
+                            holeRow[nonSearchAxisNames[0]] = val0;
+                            holeRow[nonSearchAxisNames[1]] = val1;
+                            holeRow[nonSearchAxisNames[2]] = val2;
+                            holeRow[nonSearchAxisNames[3]] = val3;
+                            holeRow[nonSearchAxisNames[4]] = val4;
+                            holeRow[nonSearchAxisNames[5]] = val5;
+                            holeRow[searchAxisName] = TableAxesValues[searchAxisName][i];
 
-                        missingTableAxisCombinations.Add(holeTableAxisValues);
+                            holeAxesValuesTable.Rows.Add(holeRow);
+                        }
+                        _mtx.ReleaseMutex();
                     }
                 }
                 
             }}}}}}
         }
 
-        /*
-        @brief: Returns csv string that denotes the params which did not pass the threshold values
-        @detail: A profile would fail if greater than e
-        @detail: String returned where each line is a failed profile with: col name, search param name, (param values,)
-                    where param values are in order (psieq_soak, beta_pol1_setpoint, psieq_dc, NevinsA(B), NevinsC, NevinsN, CurrentRatio )
-        */
+
         public void GenerateProfileScores()
         {
             var tableKeys = TableAxesValues.Keys.ToArray();
 
-            _profileScores = _dataTable.Clone();
+            _profileScoresDataTable = _dataTable.Clone();
             foreach(var col in ProfileNamesOfInterest.Split(',')){
-                _profileScores.Columns.Add(col + OffendingValueSuffix, typeof(float));
+                _profileScoresDataTable.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
 
-            var rows = _dataTable.Select($"NevinsN = {TableAxesValues["NevinsN"][_nevinsNIndex]}");
-            _singleNevinsNDataDatable = _dataTable.Clone();
-            foreach(var row in rows){
-                _singleNevinsNDataDatable.ImportRow(row);
+            var singleNevinsNRows = _dataTable.Select($"NevinsN = {TableAxesValues["NevinsN"][_nevinsNIndex]} AND psieq_dc <> 0");
+            DataTable singleNevinsNDataDatable = _dataTable.Clone();
+
+            foreach(var row in singleNevinsNRows){
+                singleNevinsNDataDatable.ImportRow(row);
             }
             
-            _profileScores.BeginLoadData();
+            _profileScoresDataTable.BeginLoadData();
 
             var tasks = new List<Task>();
             foreach(var searchAxisName in tableKeys)
@@ -227,13 +244,13 @@ using MathNet.Numerics;
                 if(searchAxisName == "NevinsN")
                     continue;
                 
-                tasks.Add(Task.Factory.StartNew(checkProfilesHelper, searchAxisName));
+                tasks.Add(Task.Factory.StartNew(() => checkProfilesHelper(searchAxisName, singleNevinsNDataDatable)));
             }
             
             Task.WaitAll(tasks.ToArray());
 
-            _profileScores.EndLoadData();
-            _profileScores.AcceptChanges();
+            _profileScoresDataTable.EndLoadData();
+            _profileScoresDataTable.AcceptChanges();
         }
 
         /*
@@ -242,14 +259,14 @@ using MathNet.Numerics;
         public List<FailingProfile> GetFailingProfiles(double threshold){
             var failingProfiles = new List<FailingProfile>();
 
-            if(! _profileScores.IsInitialized){
+            if(! _profileScoresDataTable.IsInitialized){
                 Console.WriteLine("Must generate profile scores before getting failing profiles");
                 return failingProfiles;
             }
 
             var columnNames = ProfileNamesOfInterest.Split(',');
             foreach(var columnName in columnNames){
-                var failingRows = _profileScores.Select($"{columnName} > {threshold}");
+                var failingRows = _profileScoresDataTable.Select($"{columnName} > {threshold}");
 
     
                 foreach(var failingRow in failingRows){
@@ -278,22 +295,25 @@ using MathNet.Numerics;
             return failingProfiles;
         }
 
-        private void checkProfilesHelper(Object searchAxisNameObject){
-            var searchAxisName = searchAxisNameObject as string;
-
+        private void checkProfilesHelper(in string searchAxisName, in DataTable singleNevinsNDataTable){
             var tableVals = TableAxesValues.Values.ToArray();
             var tableKeys = TableAxesValues.Keys.ToArray();
             string[] profileNames = ProfileNamesOfInterest.Split(',');
 
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            int subarr_length = 100;
+            // int subarr_length = 5;
+            // foreach(var pair in TableAxesValues){
+            //     if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
+            //     int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
+            //     float[] partial_vals = new float[arr_length];
+            //     Array.Copy(pair.Value, partial_vals, arr_length);
+            //     nonSearchTableAxes.Add(pair.Key, partial_vals);
+            // }
+
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
-                float[] partial_vals = new float[arr_length];
-                Array.Copy(pair.Value, partial_vals, arr_length);
-                nonSearchTableAxes.Add(pair.Key, partial_vals);
+                nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
@@ -303,12 +323,12 @@ using MathNet.Numerics;
 
             foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]]){
 
-                var arr0 = _singleNevinsNDataDatable.Select($"{nonSearchAxisNames[0]} = {val0}");
+                var arr0 = singleNevinsNDataTable.Select($"{nonSearchAxisNames[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
                 }
                 
-                var sort0 = _singleNevinsNDataDatable.Clone();
+                var sort0 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr0)
                     sort0.ImportRow(row);
             foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]]){
@@ -317,7 +337,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var sort1 = _singleNevinsNDataDatable.Clone();
+                var sort1 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr1)
                     sort1.ImportRow(row);
             foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]]){
@@ -326,7 +346,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var sort2 = _singleNevinsNDataDatable.Clone();
+                var sort2 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr2)
                     sort2.ImportRow(row);
             foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]]){
@@ -335,7 +355,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var sort3 = _singleNevinsNDataDatable.Clone();
+                var sort3 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr3)
                     sort3.ImportRow(row);
             foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]]){
@@ -344,7 +364,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var profilesVersusSearchAxesDatatable = _singleNevinsNDataDatable.Clone();
+                var profilesVersusSearchAxesDatatable = singleNevinsNDataTable.Clone();
                 foreach(var row in arr4)
                     profilesVersusSearchAxesDatatable.ImportRow(row);
 
@@ -385,7 +405,7 @@ using MathNet.Numerics;
                 }
 
                 _mtx.WaitOne();
-                var profileScoreRow = _profileScores.NewRow();
+                var profileScoreRow = _profileScoresDataTable.NewRow();
                 _mtx.ReleaseMutex();
                 
                 profileScoreRow[searchAxisName] = DBNull.Value;
@@ -395,10 +415,11 @@ using MathNet.Numerics;
 
                 var profileScores = new ConcurrentDictionary<string, float>();
                 var tasks = new List<Task>();
+                string searchAxisNameCopy = searchAxisName;
                 foreach(var profileName in profileNames)
                 {
                     tasks.Add(Task.Factory.StartNew(() => 
-                        fitHelper(allProfileValues[profileName], searchAxisValues, profileName, searchAxisName, ref profileScores, ref subtitle)));
+                        fitHelper(allProfileValues[profileName], searchAxisValues, profileName, searchAxisNameCopy, ref profileScores, ref subtitle)));
                 }
 
                 Task.WaitAll(tasks.ToArray());
@@ -409,13 +430,13 @@ using MathNet.Numerics;
   
                 _mtx.WaitOne(); //Critical     
                 {
-                    _profileScores.Rows.Add(profileScoreRow);
+                    _profileScoresDataTable.Rows.Add(profileScoreRow);
                 }
                 _mtx.ReleaseMutex();
             }}}}}
         }
 
-                private void loadTable(){
+        private void loadTable(){
             string tableName = "xmltable.xml";
             string schemaName = "schema.xsd";
             if(File.Exists(tableName) && File.Exists(schemaName)){
@@ -442,43 +463,12 @@ using MathNet.Numerics;
                 using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
                 getTableCommand.CommandTimeout = 500;
                 _dataTable.Load(getTableCommand.ExecuteReader()); 
-                _dataTable.WriteXmlSchema(schemaName);
-                _dataTable.WriteXml(tableName);
+                // _dataTable.WriteXmlSchema(schemaName);
+                // _dataTable.WriteXml(tableName);
                 connection.Close();
             }
         }
             
-        private (float, float) concavityChecker(in double[] col, in float[] search_axis, ref string subtitle)
-        {
-            if((col.Max() - col.Min()) < (2e-2 * col.Max())) // if range is less than 1.5% of range then don't bother checking
-            {
-                return (0, 0);
-            }
-
-            double[] second_derivs = new double[col.Count() - 2];
-            for(int j = 1; j < col.Count() - 1; j++)
-            {
-                second_derivs[j-1] = col[j-1] - 2*col[j] + col[j+1];
-            }
-
-            double max_diff = 0;
-            int offending_index = -1;
-            for(int i = 1; i< second_derivs.Count(); i++){
-                if(!(second_derivs[i] > 0 && second_derivs[i-1] > 0 || second_derivs[i] < 0 && second_derivs[i-1] < 0 )){ // if are of different sign
-                    if(Math.Abs(second_derivs[i]-second_derivs[i-1]) > max_diff){
-                        max_diff = Math.Abs(second_derivs[i]-second_derivs[i-1]);
-                        offending_index = i;
-                    }
-                }
-            }
-
-            if(offending_index == -1){
-                return(0,0);
-            }else{
-                return(Convert.ToSingle(max_diff / (col.Max() - col.Min())), search_axis[offending_index]);
-            }
-        }
-
         private void fitHelper(in double[] profileValues, in float[] searchAxisValues, in string profileName, in string searchAxisName, ref ConcurrentDictionary<string, float> profileScores, ref string subtitle)
         {
             (float metricScore, float offendingSearchAxisValue) = getBestToMeanPointRemovedFit(profileValues, searchAxisValues, ref subtitle);
@@ -604,9 +594,6 @@ using MathNet.Numerics;
 
         private void createTableAxesIndex()
         {
-            if(TableAxesValues.Count() == 0){
-                // error
-            }
             var table_axes_names = TableAxesValues.Keys.ToArray();
             string table_axes_name_string = "";
             foreach(var name in table_axes_names)
@@ -726,14 +713,12 @@ using MathNet.Numerics;
         #endregion
 
         #region Private Members
-        // private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
+        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
+        // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         private DataTable _dataTable = new DataTable();
-        private DataTable _singleNevinsNDataDatable;
-        private DataTable _profileScores;
-    
+        private DataTable _profileScoresDataTable;    
         private Mutex _mtx = new Mutex();
         private const int _nevinsNIndex = 1;
         private const double _minProfileRange = 2e-2; // Threshold for minimum profile range as fraction of the profiles maximum
