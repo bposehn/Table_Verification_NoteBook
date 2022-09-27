@@ -21,7 +21,8 @@ using MathNet.Numerics;
         public Dictionary<string, float> TableParams;
     }
 
-    public class YamlConfig{
+    public class YamlConfig
+    {
         public Dictionary<string, Object> table_axes {get; set;}
     }
 
@@ -29,8 +30,8 @@ using MathNet.Numerics;
     {
         public static void Main()
         {
-    
-            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09", "B161087,B211100,B261087,B291060,B215008,B261008,B291008");
+            string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
+            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
 
             var sw = new Stopwatch();
             sw.Start();
@@ -47,7 +48,8 @@ using MathNet.Numerics;
             // Console.WriteLine($"{sw.ElapsedMilliseconds}");
         }
 
-        public TableVerifier(string tableName, string profileNamesOfInterest){
+        public TableVerifier(string tableName, string profileNamesOfInterest)
+        {
             TableName = tableName;
             ProfileNamesOfInterest = profileNamesOfInterest;
 
@@ -82,7 +84,7 @@ using MathNet.Numerics;
             holeAxesValuesTable.BeginLoadData();
 
             var tasks = new List<Task>();
-            foreach(var searchAxisName in TableAxesValues.Keys.ToArray())
+            foreach(string searchAxisName in TableAxesValues.Keys.ToArray())
             {
                 tasks.Add(Task.Factory.StartNew(() => checkForHolesHelper(searchAxisName, justTableAxesTable, ref holeAxesValuesTable)));
             }
@@ -95,23 +97,13 @@ using MathNet.Numerics;
             return holeAxesValuesTable;
         }
 
-        private void checkForHolesHelper(object searchAxisNameObj, in DataTable justTableAxesTable, ref DataTable holeAxesValuesTable)
+        private void checkForHolesHelper(string searchAxisName, in DataTable justTableAxesTable, ref DataTable holeAxesValuesTable)
         {
-            var searchAxisName = searchAxisNameObj as string;
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            // foreach(var pair in TableAxesValues){
-            //     if(pair.Key == searchAxisName) continue;
-            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
-            // }
-
-            int subarr_length = 2;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName) continue;
-                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
-                float[] partial_vals = new float[arr_length];
-                Array.Copy(pair.Value, partial_vals, arr_length);
-                nonSearchTableAxes.Add(pair.Key, partial_vals);
+                nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
@@ -175,7 +167,8 @@ using MathNet.Numerics;
             foreach(var val5 in nonSearchTableAxes[nonSearchAxisNames[5]])
             {
                 var arr5 = select4.Select($"{nonSearchAxisNames[5]} = {val5}");
-                if(arr5.Length == 0){
+                if(arr5.Length == 0)
+                {
                     continue;
                 }
                 
@@ -216,20 +209,22 @@ using MathNet.Numerics;
             }}}}}}
         }
 
-
         public void GenerateProfileScores()
         {
             var tableKeys = TableAxesValues.Keys.ToArray();
 
             _profileScoresDataTable = _dataTable.Clone();
-            foreach(var col in ProfileNamesOfInterest.Split(',')){
+            foreach(var col in ProfileNamesOfInterest.Split(','))
+            {
                 _profileScoresDataTable.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
 
+            // Ignore all cases with no dc flux
             var singleNevinsNRows = _dataTable.Select($"NevinsN = {TableAxesValues["NevinsN"][_nevinsNIndex]} AND psieq_dc <> 0");
             DataTable singleNevinsNDataDatable = _dataTable.Clone();
 
-            foreach(var row in singleNevinsNRows){
+            foreach(var row in singleNevinsNRows)
+            {
                 singleNevinsNDataDatable.ImportRow(row);
             }
             
@@ -250,13 +245,11 @@ using MathNet.Numerics;
             _profileScoresDataTable.AcceptChanges();
         }
 
-        /*
-        * May have duplicates 
-        */
         public List<FailingProfile> GetFailingProfiles(double threshold){
             var failingProfiles = new List<FailingProfile>();
 
-            if(! _profileScoresDataTable.IsInitialized){
+            if(! _profileScoresDataTable.IsInitialized)
+            {
                 Console.WriteLine("Must generate profile scores before getting failing profiles");
                 return failingProfiles;
             }
@@ -299,27 +292,19 @@ using MathNet.Numerics;
 
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            int subarr_length = 3;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-                int arr_length = pair.Value.Count() < subarr_length ? pair.Value.Count() : subarr_length;
-                float[] partial_vals = new float[arr_length];
-                Array.Copy(pair.Value, partial_vals, arr_length);
-                nonSearchTableAxes.Add(pair.Key, partial_vals);
+                nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
-
-            // foreach(var pair in TableAxesValues){
-            //     if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
-            // }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
             if(nonSearchAxisNames.Count() != 5){ // everything but NevinsN and search axis
-                // error
+                Console.WriteLine("ERROR producing non-search axes for checking profiles");
+                return;
             }
 
-            foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]]){
-
+            foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]])
+            {
                 var arr0 = singleNevinsNDataTable.Select($"{nonSearchAxisNames[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
@@ -328,7 +313,8 @@ using MathNet.Numerics;
                 var sort0 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr0)
                     sort0.ImportRow(row);
-            foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]]){
+            foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]])
+            {
                 var arr1 = sort0.Select($"{nonSearchAxisNames[1]} = {val1}");
                 if(arr1.Length == 0){
                     continue;
@@ -337,7 +323,8 @@ using MathNet.Numerics;
                 var sort1 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr1)
                     sort1.ImportRow(row);
-            foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]]){
+            foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]])
+            {
                 var arr2 = sort1.Select($"{nonSearchAxisNames[2]} = {val2}");
                 if(arr2.Length == 0){
                     continue;
@@ -346,7 +333,8 @@ using MathNet.Numerics;
                 var sort2 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr2)
                     sort2.ImportRow(row);
-            foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]]){
+            foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]])
+            {
                 var arr3 = sort2.Select($"{nonSearchAxisNames[3]} = {val3}");
                 if(arr3.Length == 0){
                     continue;
@@ -355,7 +343,8 @@ using MathNet.Numerics;
                 var sort3 = singleNevinsNDataTable.Clone();
                 foreach(var row in arr3)
                     sort3.ImportRow(row);
-            foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]]){
+            foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]])
+            {
                 var arr4 = sort3.Select($"{nonSearchAxisNames[4]} = {val4}");
                 if(arr4.Length == 0){
                     continue;
@@ -395,7 +384,12 @@ using MathNet.Numerics;
                 var searchAxisValues = new float[profilesVersusSearchAxesDatatable.Rows.Count];
                 foreach(DataRow row in profilesVersusSearchAxesDatatable.Rows){
                     foreach(var profileName in profileNames){
-                        allProfileValues[profileName][rowNum] = Convert.ToDouble(row[profileName]);
+                        if(row[profileName] != DBNull.Value){
+                            allProfileValues[profileName][rowNum] = Convert.ToDouble(row[profileName]);
+                        }else
+                        {
+                            allProfileValues[profileName][rowNum] = 0;
+                        }
                     }
                     searchAxisValues[rowNum] = Convert.ToSingle(row[searchAxisName]);
                     rowNum ++;
@@ -434,25 +428,27 @@ using MathNet.Numerics;
             }}}}}
         }
 
-        private void loadTable(){
-            string tableName = "xmltable.xml";
-            string schemaName = "schema.xsd";
-            if(File.Exists(tableName) && File.Exists(schemaName)){
-                _dataTable.ReadXmlSchema(schemaName);
-                _dataTable.ReadXml(tableName);
-                return;
-            }
-
+        private void loadTable()
+        {
             var tableKeys = TableAxesValues.Keys.ToArray();
 
             var queryColumns = "";
+            
+            HashSet<string> tableColumnNames = getTableColumnNames();
+            foreach(string columnOfInterest in ProfileNamesOfInterest.Split(',')){
+                if(tableColumnNames.Contains(columnOfInterest))
+                {
+                    queryColumns += columnOfInterest + ",";
+                }
+            }
+
+            ProfileNamesOfInterest = queryColumns.Substring(0, queryColumns.Count()-1);
+
             foreach(var tableKey in tableKeys){
-                queryColumns += tableKey + ", ";
+                queryColumns += tableKey + ",";
             }
-            foreach(var columnOfInterest in ProfileNamesOfInterest.Split(',')){
-                queryColumns += columnOfInterest + ", ";
-            }
-            queryColumns = queryColumns.Substring(0, queryColumns.Length-2);
+        
+            queryColumns = queryColumns.Substring(0, queryColumns.Length-1);
 
             var getTableCommandString = $"SELECT {queryColumns} FROM {_databaseName}.`{TableName}`";
             using(var connection = new MySqlConnection(_connectionString))
@@ -461,8 +457,6 @@ using MathNet.Numerics;
                 using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
                 getTableCommand.CommandTimeout = 500;
                 _dataTable.Load(getTableCommand.ExecuteReader()); 
-                // _dataTable.WriteXmlSchema(schemaName);
-                // _dataTable.WriteXml(tableName);
                 connection.Close();
             }
         }
@@ -528,37 +522,9 @@ using MathNet.Numerics;
             return true;
         }
 
-        private bool hasAnyNulls()
-        {
-            string where_clause = "";
-            var col_names = getTableColumnNames();
-
-            foreach(var col_name in col_names){
-                where_clause += col_name + " IS NULL OR ";
-            }
-            where_clause = where_clause.Substring(0, where_clause.Length - 4);
-
-            using var connection = new MySqlConnection(_connectionString);
-            string check_any_nulls_cmd_string = "SELECT COUNT(*) FROM gradshafranov.`pi3b_asbuilt_pfc17500ab_2022-06-09` WHERE " + where_clause;
-            using (var check_any_nulls_cmd = new MySqlCommand(check_any_nulls_cmd_string, connection)){
-                check_any_nulls_cmd.CommandTimeout = 200;
-
-                using var rdr = check_any_nulls_cmd.ExecuteReader();
-                rdr.Read();
-
-                var num_nulls = rdr.GetInt32(0);
-
-                if(num_nulls != 0){
-                    return true;
-                }
-
-                return false;
-            }
-        }
-
         private int getNumRows()
         {
-            string getNumberOfRowsCommandString = "SELECT COUNT(*) FROM gradshafranov.`" + TableName + "`";
+            string getNumberOfRowsCommandString = $"SELECT COUNT(*) FROM FROM {_databaseName}.`{TableName}`";
 
             using var _connection = new MySqlConnection(_connectionString);
             _connection.Open();
@@ -571,11 +537,11 @@ using MathNet.Numerics;
             }
         }
 
-        private string[] getTableColumnNames(){
+        private HashSet<string> getTableColumnNames(){
 
-            var tableColumnNames = new List<string>();
+            var tableColumnNames = new HashSet<string>();
 
-            string getColumnNamesCommandString = "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='GradShafranov' AND `TABLE_NAME`='pi3b_asbuilt_pfc17500ab_2022-06-09'";
+            string getColumnNamesCommandString = $"SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA`='{_databaseName}' AND `TABLE_NAME`='{TableName}'";
             
             using var _connection = new MySqlConnection(_connectionString);
             _connection.Open();
@@ -583,41 +549,12 @@ using MathNet.Numerics;
             {
                 using var rdr = getColumnsCommand.ExecuteReader();
                 while(rdr.Read()){
-                    tableColumnNames.Append(rdr.GetString(0));
+                    tableColumnNames.Add(rdr.GetString(0));
                 }
             }
 
-            return tableColumnNames.ToArray();
+            return tableColumnNames;
         }
-
-        private void createTableAxesIndex()
-        {
-            var table_axes_names = TableAxesValues.Keys.ToArray();
-            string table_axes_name_string = "";
-            foreach(var name in table_axes_names)
-            {
-                table_axes_name_string += name + ", ";
-            }
-            table_axes_name_string = table_axes_name_string.Substring(0, table_axes_name_string.Length - 2);
-
-            string create_table_axes_index_cmd_string =
-             "CREATE INDEX table_axes_index ON gradshafranov.`" + TableName + "`(" + table_axes_name_string + ")";
-
-            using var _connection = new MySqlConnection(_connectionString);
-            _connection.Open();
-            using(var create_table_axes_index_cmd = new MySqlCommand(create_table_axes_index_cmd_string, _connection))
-            {
-                try{
-                   create_table_axes_index_cmd.ExecuteReader();
-                }catch(MySql.Data.MySqlClient.MySqlException  e){
-                    // Do nothing if index already exists
-                    if(! e.Message.StartsWith("Duplicate key name")){
-                        throw e;
-                    }
-                }
-            }
-        }
-
         private void populateTableAxesValues()
         {
             string tableAxesYamlFilename = getTableAxesYamlFilename();
@@ -629,8 +566,8 @@ using MathNet.Numerics;
             if(File.Exists(tableAxesYamlFilename)){
                 yamlText = File.ReadAllText(tableAxesYamlFilename);
             }else{
+                Console.WriteLine("ERROR yaml file to read table axes cannot be found: ", tableAxesYamlFilename);
                 return;
-                // TODO add error handling
             }
 
             yamlText = yamlText.Substring(yamlText.IndexOf("table_axes:"), yamlText.IndexOf("num_equilibria:") - yamlText.IndexOf("table_axes:"));
@@ -662,7 +599,7 @@ using MathNet.Numerics;
                     TableAxesValues.Add(key, vals);
                 }
                 else{
-                    // TODO add error handling
+                    Console.WriteLine("ERROR unexpected type encountered reading yaml file");
                 }
             }
         }
@@ -670,7 +607,7 @@ using MathNet.Numerics;
         private string getTableAxesYamlFilename()
         {
             string getTableAxesYamlFilenameCommandString =
-             "SELECT YamlFilename, FilesLocation FROM gradshafranov." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
+             $"SELECT YamlFilename, FilesLocation FROM {_databaseName}." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
             
             using var connection = new MySqlConnection(_connectionString);
             connection.Open();
@@ -683,13 +620,13 @@ using MathNet.Numerics;
             var fileLocation = reader.GetString("FilesLocation");
             fileLocation = fileLocation.Substring(0, fileLocation.Length - 6);
 
-            return Path.Combine(Environment.GetEnvironmentVariable("FS_ARCHIVE_ROOT"), fileLocation, tableAxesYamlFilename); // TODO make this agnostic
+            return Path.Combine(Environment.GetEnvironmentVariable("FS_ARCHIVE_ROOT"), fileLocation, tableAxesYamlFilename);
         }
 
-        public string GetFilesLocation() // TODO move this
+        public string GetFilesLocation()
         {
             string getFilesLoationCommandString =
-             "SELECT FilesLocation FROM gradshafranov." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
+             $"SELECT FilesLocation FROM {_databaseName}.{_metadataTableName} WHERE TableName = '{TableName}'";
             
             using var connection = new MySqlConnection(_connectionString);
             connection.Open();
@@ -712,7 +649,6 @@ using MathNet.Numerics;
 
         #region Private Members
         private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        // private const string _connectionString = @"server=172.25.224.39; userid=lut; password=; database=GradShafranov; Connection Timeout=100";
         private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         
