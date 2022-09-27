@@ -26,6 +26,10 @@ using MathNet.Numerics;
         public Dictionary<string, Object> table_axes {get; set;}
     }
 
+    /*
+    Class used for performing table verification tasks. Two main functionalities are: calculating best to average point removed fit quality (BTAPRFQ), 
+        and checking for holes (table axis value combinations which do not exist)
+    */
     public class TableVerifier
     {
         public static void Main()
@@ -40,7 +44,7 @@ using MathNet.Numerics;
             verifier.GenerateProfileScores();
             Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
             sw.Stop();
-            var failing_profiles = verifier.GetFailingProfiles(0.5);
+            var failing_profiles = verifier.GetFlaggingProfiles(0.5);
 
             // // Check holes
             // DataTable failing = verifier.CheckForHoles();
@@ -48,6 +52,11 @@ using MathNet.Numerics;
             // Console.WriteLine($"{sw.ElapsedMilliseconds}");
         }
 
+        /*
+        @brief: Populates TableAxesValues from yaml file and loads all table axis and profile columns from the SQL table
+        @param: profileNamesOfInterest comma-seperated string containing column names in the SQL table that will be
+                    checked for best to average point removed fit quality
+        */
         public TableVerifier(string tableName, string profileNamesOfInterest)
         {
             TableName = tableName;
@@ -74,6 +83,10 @@ using MathNet.Numerics;
         }
         #endregion
 
+        /*
+        @brief: Checks for combinations of table axis values which are not present in the table
+        @returns: Datatable containing table axis combinations which are not present in the table. Has a column for each table axis.
+        */
         public DataTable CheckForHoles()
         {
             // Reduce table to contain only table axes
@@ -97,11 +110,12 @@ using MathNet.Numerics;
             return holeAxesValuesTable;
         }
 
-        private void checkForHolesHelper(string searchAxisName, in DataTable justTableAxesTable, ref DataTable holeAxesValuesTable)
+        private void checkForHolesHelper(in string searchAxisName, in DataTable justTableAxesTable, ref DataTable holeAxesValuesTable)
         {
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            foreach(var pair in TableAxesValues){
+            foreach(var pair in TableAxesValues)
+            {
                 if(pair.Key == searchAxisName) continue;
                 nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
@@ -209,17 +223,27 @@ using MathNet.Numerics;
             }}}}}}
         }
 
+        /*
+        @brief: Stores a best to average point removed fit quality (BTAPRFQ) score for each profile for each table axis combination
+        @returns: Nothing, but populates _profileScoresDataTable DataTable, which has columns for each table axis, each profile to
+                    store their BTAPRFQ score, and another set of columns for each profile to store
+                    the search axis value which resulted in the highest BTAPRFQ score
+        @detail: Columns with the search axis value resulting in highest BTAPRFQ scores have names: ~profile name~ + '_offending_val'
+        @detail: Profile scores can be acquired through GetProfileScoreTable
+        @detail: Ignores NevinsN for speed of execution purposes. Just uses a single NevinsN value defined by index _nevinsNIndex
+        */
         public void GenerateProfileScores()
         {
             var tableKeys = TableAxesValues.Keys.ToArray();
 
+            // Add column to table to store the search axis value which resulted in highest BTAPRFQ
             _profileScoresDataTable = _dataTable.Clone();
             foreach(var col in ProfileNamesOfInterest.Split(','))
             {
                 _profileScoresDataTable.Columns.Add(col + OffendingValueSuffix, typeof(float));
             }
 
-            // Ignore all cases with no dc flux
+            // Ignore all cases with no dc flux, all NevinsN values except 1
             var singleNevinsNRows = _dataTable.Select($"NevinsN = {TableAxesValues["NevinsN"][_nevinsNIndex]} AND psieq_dc <> 0");
             DataTable singleNevinsNDataDatable = _dataTable.Clone();
 
@@ -230,13 +254,14 @@ using MathNet.Numerics;
             
             _profileScoresDataTable.BeginLoadData();
 
+            // Calculate BTAPRFQ scores for each search axis
             var tasks = new List<Task>();
             foreach(var searchAxisName in tableKeys)
             {
                 if(searchAxisName == "NevinsN")
                     continue;
                 
-                tasks.Add(Task.Factory.StartNew(() => checkProfilesHelper(searchAxisName, singleNevinsNDataDatable)));
+                tasks.Add(Task.Factory.StartNew(() => generateProfileScoresHelper(searchAxisName, singleNevinsNDataDatable)));
             }
             
             Task.WaitAll(tasks.ToArray());
@@ -245,7 +270,14 @@ using MathNet.Numerics;
             _profileScoresDataTable.AcceptChanges();
         }
 
-        public List<FailingProfile> GetFailingProfiles(double threshold){
+        /*
+        @brief: Determines which profiles for which table axis combinations have best to average point removed fit
+                    quality (BTAPRFQ) scores higher than an inputted threshold
+        @returns: List<FailingProfiles> denoting which profiles and table axis combinations are flagged
+        @detail: Multiple FailingProfiles may have the same table axes combinations as different profiles could be
+                    flagged for the same combination
+        */
+        public List<FailingProfile> GetFlaggingProfiles(double threshold){
             var failingProfiles = new List<FailingProfile>();
 
             if(! _profileScoresDataTable.IsInitialized)
@@ -285,9 +317,8 @@ using MathNet.Numerics;
             return failingProfiles;
         }
 
-        private void checkProfilesHelper(in string searchAxisName, in DataTable singleNevinsNDataTable){
-            var tableVals = TableAxesValues.Values.ToArray();
-            var tableKeys = TableAxesValues.Keys.ToArray();
+        private void generateProfileScoresHelper(in string searchAxisName, in DataTable singleNevinsNDataTable)
+        {
             string[] profileNames = ProfileNamesOfInterest.Split(',');
 
             var nonSearchTableAxes = new Dictionary<string, float[]>();
@@ -303,6 +334,7 @@ using MathNet.Numerics;
                 return;
             }
 
+            // Select table values corresponding to non-search axis values
             foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]])
             {
                 var arr0 = singleNevinsNDataTable.Select($"{nonSearchAxisNames[0]} = {val0}");
@@ -395,10 +427,12 @@ using MathNet.Numerics;
                     rowNum ++;
                 }
 
+                // Necessary to treat NewRow operation as thread-unsafe
                 _mtx.WaitOne();
                 var profileScoreRow = _profileScoresDataTable.NewRow();
                 _mtx.ReleaseMutex();
                 
+                // Set search axis value to NULL to denote which axis was the search axis
                 profileScoreRow[searchAxisName] = DBNull.Value;
                 foreach(var pr in nonSearchAxesValues){
                     profileScoreRow[pr.Key] = pr.Value;
@@ -406,6 +440,7 @@ using MathNet.Numerics;
 
                 var profileScores = new ConcurrentDictionary<string, float>();
 
+                // Calculate and store BTAPRFQ for each profile
                 var tasks = new List<Task>();
                 string searchAxisNameCopy = searchAxisName;
                 foreach(var profileName in profileNames)
@@ -420,7 +455,7 @@ using MathNet.Numerics;
                     profileScoreRow[pair.Key] = pair.Value;
                 }
   
-                _mtx.WaitOne(); //Critical     
+                _mtx.WaitOne();  
                 {
                     _profileScoresDataTable.Rows.Add(profileScoreRow);
                 }
@@ -463,44 +498,44 @@ using MathNet.Numerics;
             
         private void fitHelper(in double[] profileValues, in float[] searchAxisValues, in string profileName, in string searchAxisName, ref ConcurrentDictionary<string, float> profileScores, ref string subtitle)
         {
-            (float metricScore, float offendingSearchAxisValue) = getBestToMeanPointRemovedFit(profileValues, searchAxisValues, ref subtitle);
+            (float metricScore, float offendingSearchAxisValue) = getBestToAveragePointRemovedFit(profileValues, searchAxisValues, ref subtitle);
 
             profileScores[profileName] = metricScore;
             profileScores[profileName + OffendingValueSuffix] = offendingSearchAxisValue;
         }
 
-        private (float, float) getBestToMeanPointRemovedFit(in double[] profileValues, in float[] searchAxisValues, ref string subtitle)
+        private (float, float) getBestToAveragePointRemovedFit(in double[] profileValues, in float[] searchAxisValues, ref string subtitle)
         {
-            if((profileValues.Max() - profileValues.Min()) < (_minProfileRange * profileValues.Max())) // if range is less than 1.5% of range then don't bother checking
+            if((profileValues.Max() - profileValues.Min()) < (_minProfileRange * profileValues.Max())) // if range is less than x% of range then don't bother checking
                 return (0, 0);
 
-            if(profileValues.Count() < 5)
+            if(profileValues.Count() < 5) // After removing a point, need at least 4 values otherwise fit will be underconstrained or perfect
                 return (0, 0);
 
             var xs = new double[profileValues.Count()-1];
             for(int i = 0; i < profileValues.Count()-1; i++)
                 xs[i] = Convert.ToDouble(i);
 
-            double[] point_removed_quadratic_fit_goodness = new double[profileValues.Count()];
+            double[] pointRemovedQuadraticFitGoodness = new double[profileValues.Count()];
 
             for(int j = 0; j < profileValues.Count(); j++)
             {
-                var data_with_removed_value = profileValues.Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
+                var dataWithValueRemoved = profileValues.Where((source, index) =>index != j).ToArray(); // could also try having that point as averge of two on either end
                 
-                double[] quadratic_fit_params = Fit.Polynomial(xs, data_with_removed_value, 2);
+                double[] quadraticFitParams = Fit.Polynomial(xs, dataWithValueRemoved, 2);
 
-                var quadratic_fit_goodness = GoodnessOfFit.RSquared(xs.Select(
-                    x => quadratic_fit_params[0] + quadratic_fit_params[1]*x + quadratic_fit_params[2]*Math.Pow(x, 2)), data_with_removed_value);
+                var quadraticFitQuality = GoodnessOfFit.RSquared(xs.Select(
+                    x => quadraticFitParams[0] + quadraticFitParams[1]*x + quadraticFitParams[2]*Math.Pow(x, 2)), dataWithValueRemoved);
                                 
-                point_removed_quadratic_fit_goodness[j] = quadratic_fit_goodness;
+                pointRemovedQuadraticFitGoodness[j] = quadraticFitQuality;
             }
 
-            double mean_fit_goodness = point_removed_quadratic_fit_goodness.Average();
-            double dist_from_best_fit_to_mean = point_removed_quadratic_fit_goodness.Max() - mean_fit_goodness;
+            double meanFitQuality = pointRemovedQuadraticFitGoodness.Average();
+            double BestToMeanFitDifference = pointRemovedQuadraticFitGoodness.Max() - meanFitQuality;
 
-            var offending_val = searchAxisValues[Array.IndexOf(point_removed_quadratic_fit_goodness, point_removed_quadratic_fit_goodness.Max())];
+            var offendingValue = searchAxisValues[Array.IndexOf(pointRemovedQuadraticFitGoodness, pointRemovedQuadraticFitGoodness.Max())];
 
-            return ((float)dist_from_best_fit_to_mean, (float)offending_val);
+            return ((float)BestToMeanFitDifference, (float)offendingValue);
         }
 
         private bool quadraticFitChecker(double[] col, ref string subtitle)
@@ -509,26 +544,26 @@ using MathNet.Numerics;
             for(int i = 0; i < col.Count(); i++)
                 xs[i] = Convert.ToDouble(i);
 
-            double[] quadratic_fit_params = Fit.Polynomial(xs, col, 2);
-            var quadratic_fit_goodness = GoodnessOfFit.RSquared(xs.Select(
-                x => quadratic_fit_params[0] + quadratic_fit_params[1]*x + quadratic_fit_params[2]*Math.Pow(x, 2)), col);
+            double[] quadraticFitParams = Fit.Polynomial(xs, col, 2);
+            var quadraticFitQuality = GoodnessOfFit.RSquared(xs.Select(
+                x => quadraticFitParams[0] + quadraticFitParams[1]*x + quadraticFitParams[2]*Math.Pow(x, 2)), col);
 
             double fit_threshold = .6;
-            if(quadratic_fit_goodness < fit_threshold){
-                subtitle = $"Fit Goodness: {quadratic_fit_goodness}"; 
+            if(quadraticFitQuality < fit_threshold){
+                subtitle = $"Fit Goodness: {quadraticFitQuality}"; 
                 return false;
             }
 
             return true;
         }
 
-        private int getNumRows()
+        private int getNumberOfTableRows()
         {
             string getNumberOfRowsCommandString = $"SELECT COUNT(*) FROM FROM {_databaseName}.`{TableName}`";
 
-            using var _connection = new MySqlConnection(_connectionString);
-            _connection.Open();
-            using (var getNumberOfRowsCommand = new MySqlCommand(getNumberOfRowsCommandString, _connection))
+            using var connection = new MySqlConnection(_connectionString);
+            connection.Open();
+            using (var getNumberOfRowsCommand = new MySqlCommand(getNumberOfRowsCommandString, connection))
             {
                 using var rdr = getNumberOfRowsCommand.ExecuteReader();
                 rdr.Read();
