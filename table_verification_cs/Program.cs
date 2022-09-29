@@ -27,62 +27,93 @@ using MathNet.Numerics;
         public Dictionary<string, Object> table_axes {get; set;}
     }
 
+    public class TableVerificationTool
+    {
+        public T[] GetColumnFromTable<T>(in DataTable dataTable, in string columnName)
+        {
+            var column = new T[dataTable.Rows.Count];
+            int i = 0;
+            foreach(DataRow row in dataTable.Rows)
+            {
+                column[i] = (T)row[columnName];
+                i++;
+            }
+
+            return column;
+        }
+
+        public float[] GetFloatColumnFromTable(in DataTable dataTable, in string columnName)
+        {
+            var column = new float[dataTable.Rows.Count];
+            int i = 0;
+            foreach(DataRow row in dataTable.Rows)
+            {
+                column[i] = (float)(double)row[columnName];
+                i++;
+            }
+
+            return column;
+        }
+        protected const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
+        protected const string _databaseName = "gradshafranov";
+    }
+
     /*
     Class used for performing table verification tasks. Two main functionalities are: calculating best to average point removed fit quality (BTAPRFQ), 
         and checking for holes (table axis value combinations which do not exist)
     */
-    public class TableVerifier
+    public class TableVerifier : TableVerificationTool
     {
-        // public static void Main()
-        // {
-        //     string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";//, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
-        //     TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
+        public static void Main()
+        {
+            string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";//, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
+            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
 
-        //     var sw = new Stopwatch();
-        //     sw.Start();
+            var sw = new Stopwatch();
+            sw.Start();
 
-        //     // Check profiles
-        //     // verifier.GenerateProfileScores();
-        //     // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
-        //     // sw.Stop();
-        //     // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
+            // Check profiles
+            // verifier.GenerateProfileScores();
+            // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
+            // sw.Stop();
+            // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
 
-        //     // Check holes
-        //     DataTable failing = verifier.CheckForHoles();
-        //     sw.Stop();
-        //     Console.WriteLine($"{sw.ElapsedMilliseconds}");
+            // Check holes
+            DataTable failing = verifier.CheckForHoles();
+            sw.Stop();
+            Console.WriteLine($"{sw.ElapsedMilliseconds}");
 
-        //     // // Test that all holes at least don't have their values in the table
-        //     // foreach(DataRow row in failing.Rows)
-        //     // {
-        //     //     string selectString = "";
-        //     //     foreach(string searchAxisName in verifier.TableAxesValues.Keys)
-        //     //     {
-        //     //         if(searchAxisName != (string)row[SearchAxisColumnName]){
-        //     //             var val = Convert.ToSingle(row[searchAxisName]);
-        //     //             if(searchAxisName != "Ipl_setpoint"){
-        //     //                 val = (float)Math.Round(val * 100f) / 100f;
-        //     //             }
-        //     //             selectString += $"{searchAxisName} = {val} AND ";
+            // // Test that all holes at least don't have their values in the table
+            // foreach(DataRow row in failing.Rows)
+            // {
+            //     string selectString = "";
+            //     foreach(string searchAxisName in verifier.TableAxesValues.Keys)
+            //     {
+            //         if(searchAxisName != (string)row[SearchAxisColumnName]){
+            //             var val = Convert.ToSingle(row[searchAxisName]);
+            //             if(searchAxisName != "Ipl_setpoint"){
+            //                 val = (float)Math.Round(val * 100f) / 100f;
+            //             }
+            //             selectString += $"{searchAxisName} = {val} AND ";
 
-        //     //         }
-        //     //     }
-        //     //     selectString = selectString.Substring(0, selectString.Count()-5);
-        //     //     DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
+            //         }
+            //     }
+            //     selectString = selectString.Substring(0, selectString.Count()-5);
+            //     DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
 
-        //     //     var selectTable = verifier.GetDataTable().Clone();
-        //     //     foreach(DataRow roww in selectedRows)
-        //     //         selectTable.ImportRow(roww);
+            //     var selectTable = verifier.GetDataTable().Clone();
+            //     foreach(DataRow roww in selectedRows)
+            //         selectTable.ImportRow(roww);
 
-        //     //     string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
-        //     //     float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
-        //     //     if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
-        //     //         Console.WriteLine("miss");
-        //     //     }else{
-        //     //         Console.WriteLine("hit");
-        //     //     }
-        //     // }
-        // }
+            //     string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
+            //     float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
+            //     if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
+            //         Console.WriteLine("miss");
+            //     }else{
+            //         Console.WriteLine("hit");
+            //     }
+            // }
+        }
 
         /*
         @brief: Populates TableAxesValues from yaml file and loads all table axis and profile columns from the SQL table
@@ -229,7 +260,7 @@ using MathNet.Numerics;
 
                 float[] searchAxisValues = TableAxesValues[searchAxisName];
 
-                float[] existentSearchAxisVals = singleSearchAxisDataTable.AsEnumerable().Select(s => (float)s.Field<double>(searchAxisNameCopy)).ToArray();
+                float[] existentSearchAxisVals = GetFloatColumnFromTable(singleSearchAxisDataTable, searchAxisName);
                 var dataExistsAtSearchAxisValue = new bool[searchAxisValues.Count()];
                 for(int i = 0; i < searchAxisValues.Count(); i++)
                 {
@@ -360,7 +391,7 @@ using MathNet.Numerics;
                         temp_dt.ImportRow(row);
                     }
 
-                    float[] flaggingProfileValues = temp_dt.AsEnumerable().Select(s => (float)s.Field<double>(columnName)).ToArray();
+                    float[] flaggingProfileValues = GetFloatColumnFromTable(temp_dt, columnName);   
 
                     flaggingProfile.SearchAxis = searchAxisName;
                     flaggingProfile.ProfileColumnName = columnName;
@@ -756,8 +787,6 @@ using MathNet.Numerics;
         #endregion
 
         #region Private Members
-        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        private const string _databaseName = "gradshafranov";
         private const string _metadataTableName = "lut_metadata";
         
         // Contains all data from the table
@@ -773,11 +802,12 @@ using MathNet.Numerics;
         #endregion
     }
 
-    public class TableComparer
+    public class TableComparer : TableVerificationTool
     {
         // public static void Main()
         // {
         //     var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc17500ab_2022-06-09");
+        //     var sw = new Stopwatch();
         //     var differingFileNames = tableComparer.ViewDifferingFileNames();
         //     var n = differingFileNames.Rows.Count;
         // }
@@ -829,7 +859,7 @@ using MathNet.Numerics;
                     using var selectFileNamesColumnCmd = new MySqlCommand(selectFileNamesColumnCmdString, connection);
                     DataTable fileNamesDataTable = new DataTable();
                     fileNamesDataTable.Load(selectFileNamesColumnCmd.ExecuteReader());
-                    fileNameColumns[i] = fileNamesDataTable.AsEnumerable().Select(s => s.Field<string>("FileName")).ToList();
+                    fileNameColumns[i] = GetColumnFromTable<string>(fileNamesDataTable, "FileName").ToList();
                 }
             }
 
@@ -863,7 +893,5 @@ using MathNet.Numerics;
 
         private DataTable _dataTable1;
         private DataTable _dataTable2;
-        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
-        private const string _databaseName = "gradshafranov";
     }
 }
