@@ -33,56 +33,56 @@ using MathNet.Numerics;
     */
     public class TableVerifier
     {
-         public static void Main()
-        {
-            string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";//, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
-            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
+        // public static void Main()
+        // {
+        //     string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";//, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
+        //     TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
 
-            var sw = new Stopwatch();
-            sw.Start();
+        //     var sw = new Stopwatch();
+        //     sw.Start();
 
-            // Check profiles
-            // verifier.GenerateProfileScores();
-            // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
-            // sw.Stop();
-            // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
+        //     // Check profiles
+        //     // verifier.GenerateProfileScores();
+        //     // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
+        //     // sw.Stop();
+        //     // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
 
-            // Check holes
-            DataTable failing = verifier.CheckForHoles();
-            sw.Stop();
-            Console.WriteLine($"{sw.ElapsedMilliseconds}");
+        //     // Check holes
+        //     DataTable failing = verifier.CheckForHoles();
+        //     sw.Stop();
+        //     Console.WriteLine($"{sw.ElapsedMilliseconds}");
 
-            // // Test that all holes at least don't have their values in the table
-            // foreach(DataRow row in failing.Rows)
-            // {
-            //     string selectString = "";
-            //     foreach(string searchAxisName in verifier.TableAxesValues.Keys)
-            //     {
-            //         if(searchAxisName != (string)row[SearchAxisColumnName]){
-            //             var val = Convert.ToSingle(row[searchAxisName]);
-            //             if(searchAxisName != "Ipl_setpoint"){
-            //                 val = (float)Math.Round(val * 100f) / 100f;
-            //             }
-            //             selectString += $"{searchAxisName} = {val} AND ";
+        //     // // Test that all holes at least don't have their values in the table
+        //     // foreach(DataRow row in failing.Rows)
+        //     // {
+        //     //     string selectString = "";
+        //     //     foreach(string searchAxisName in verifier.TableAxesValues.Keys)
+        //     //     {
+        //     //         if(searchAxisName != (string)row[SearchAxisColumnName]){
+        //     //             var val = Convert.ToSingle(row[searchAxisName]);
+        //     //             if(searchAxisName != "Ipl_setpoint"){
+        //     //                 val = (float)Math.Round(val * 100f) / 100f;
+        //     //             }
+        //     //             selectString += $"{searchAxisName} = {val} AND ";
 
-            //         }
-            //     }
-            //     selectString = selectString.Substring(0, selectString.Count()-5);
-            //     DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
+        //     //         }
+        //     //     }
+        //     //     selectString = selectString.Substring(0, selectString.Count()-5);
+        //     //     DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
 
-            //     var selectTable = verifier.GetDataTable().Clone();
-            //     foreach(DataRow roww in selectedRows)
-            //         selectTable.ImportRow(roww);
+        //     //     var selectTable = verifier.GetDataTable().Clone();
+        //     //     foreach(DataRow roww in selectedRows)
+        //     //         selectTable.ImportRow(roww);
 
-            //     string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
-            //     float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
-            //     if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
-            //         Console.WriteLine("miss");
-            //     }else{
-            //         Console.WriteLine("hit");
-            //     }
-            // }
-        }
+        //     //     string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
+        //     //     float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
+        //     //     if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
+        //     //         Console.WriteLine("miss");
+        //     //     }else{
+        //     //         Console.WriteLine("hit");
+        //     //     }
+        //     // }
+        // }
 
         /*
         @brief: Populates TableAxesValues from yaml file and loads all table axis and profile columns from the SQL table
@@ -771,5 +771,99 @@ using MathNet.Numerics;
         private const int _nevinsNIndex = 1;
         private const double _minProfileRange = 2e-2; // Threshold for minimum profile range as fraction of the profiles maximum
         #endregion
+    }
+
+    public class TableComparer
+    {
+        // public static void Main()
+        // {
+        //     var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc17500ab_2022-06-09");
+        //     var differingFileNames = tableComparer.ViewDifferingFileNames();
+        //     var n = differingFileNames.Rows.Count;
+        // }
+
+        public TableComparer(string table1Name, string table2Name)
+        {
+            Table1Name = table1Name;
+            Table2Name = table2Name;
+        
+            // string[] tableNames = new string[] {table1Name, table2Name};
+            // DataTable[] dataTables = new DataTable[] {_dataTable1, _dataTable2};
+
+            // // Load in both entire tables
+            // // The entire table would be ~16Gb
+            // var tableInformation = tableNames.Zip(dataTables);
+            // foreach(var singleTableInformation in tableInformation)
+            // {
+            //     string tableName = singleTableInformation.First;
+            //     DataTable table = singleTableInformation.Second;
+
+            //     var getTableCommandString = $"SELECT * FROM {_databaseName}.`{tableName}`"; // is this too much space ? 
+            //     using(var connection = new MySqlConnection(_connectionString))
+            //     {
+            //         connection.Open();
+            //         using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
+            //         getTableCommand.CommandTimeout = 1000;
+            //         table.Load(getTableCommand.ExecuteReader());
+            //         connection.Close();
+            //     }
+            // }
+        }
+
+        public DataTable ViewDifferingFileNames()
+        {
+            DataTable differingFileNames = new DataTable();
+
+            differingFileNames.Columns.Add(FileNameColumnName);
+            differingFileNames.Columns.Add(OwnerTableColumnName);
+
+            string[] fileNames = new string[] {Table1Name, Table2Name};
+            List<string>[] fileNameColumns = new List<string>[2];
+
+            for(int i = 0; i < fileNames.Count(); i++)
+            {
+                string selectFileNamesColumnCmdString = $"SELECT {FileNameColumnName} FROM {_databaseName}.`{fileNames[i]}`";
+                using(var connection = new MySqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using var selectFileNamesColumnCmd = new MySqlCommand(selectFileNamesColumnCmdString, connection);
+                    DataTable fileNamesDataTable = new DataTable();
+                    fileNamesDataTable.Load(selectFileNamesColumnCmd.ExecuteReader());
+                    fileNameColumns[i] = fileNamesDataTable.AsEnumerable().Select(s => s.Field<string>("FileName")).ToList();
+                }
+            }
+
+            var table1Values = new HashSet<string>(fileNameColumns[0]);
+            var table2Values = new HashSet<string>(fileNameColumns[1]);
+
+            var uniqueFileNames = new HashSet<string>(table1Values);
+            uniqueFileNames.SymmetricExceptWith(table2Values); // modifies uniqueFilenames to contain all values not in both sets
+
+            foreach(string uniqueFileName in uniqueFileNames)
+            {   
+                DataRow uniqueFileNameRow = differingFileNames.NewRow();
+                uniqueFileNameRow[FileNameColumnName] = uniqueFileName;
+                if(table1Values.Contains(uniqueFileName))
+                {
+                    uniqueFileNameRow[OwnerTableColumnName] = Table1Name;
+                }else{
+                    uniqueFileNameRow[OwnerTableColumnName] = Table2Name;
+                }
+
+                differingFileNames.Rows.Add(uniqueFileNameRow);
+            }
+
+            return differingFileNames;
+        }
+
+        public readonly string Table1Name;
+        public readonly string Table2Name;
+        public const string FileNameColumnName = "FileName";
+        public const string OwnerTableColumnName = "OwnerTable";
+
+        private DataTable _dataTable1;
+        private DataTable _dataTable2;
+        private const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
+        private const string _databaseName = "gradshafranov";
     }
 }
