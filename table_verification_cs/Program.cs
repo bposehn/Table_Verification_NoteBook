@@ -51,6 +51,37 @@ using MathNet.Numerics;
             DataTable failing = verifier.CheckForHoles();
             sw.Stop();
             Console.WriteLine($"{sw.ElapsedMilliseconds}");
+
+            // // Test that all holes at least don't have their values in the table
+            // foreach(DataRow row in failing.Rows)
+            // {
+            //     string selectString = "";
+            //     foreach(string searchAxisName in verifier.TableAxesValues.Keys)
+            //     {
+            //         if(searchAxisName != (string)row[SearchAxisColumnName]){
+            //             var val = Convert.ToSingle(row[searchAxisName]);
+            //             if(searchAxisName != "Ipl_setpoint"){
+            //                 val = (float)Math.Round(val * 100f) / 100f;
+            //             }
+            //             selectString += $"{searchAxisName} = {val} AND ";
+
+            //         }
+            //     }
+            //     selectString = selectString.Substring(0, selectString.Count()-5);
+            //     DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
+
+            //     var selectTable = verifier.GetDataTable().Clone();
+            //     foreach(DataRow roww in selectedRows)
+            //         selectTable.ImportRow(roww);
+
+            //     string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
+            //     float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
+            //     if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
+            //         Console.WriteLine("miss");
+            //     }else{
+            //         Console.WriteLine("hit");
+            //     }
+            // }
         }
 
         /*
@@ -350,17 +381,9 @@ using MathNet.Numerics;
 
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
-            // foreach(var pair in TableAxesValues){
-            //     if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
-            // }
-
-            int subarr_length = 3;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-                var vals = pair.Value;
-                vals = vals.Take(subarr_length).ToArray();
-                nonSearchTableAxes.Add(pair.Key, vals);
+                nonSearchTableAxes.Add(pair.Key, pair.Value);
             }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
