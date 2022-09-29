@@ -13,12 +13,13 @@ using MathNet.Numerics;
 
 ﻿﻿namespace TableVerification
 {
-    public struct FailingProfile
+    public struct FlaggingProfile
     {
         public string ProfileColumnName;
         public string SearchAxis;
         public string FilesLocation;
         public Dictionary<string, float> TableParams;
+        public float[] flaggingProfileValues;
     }
 
     public class YamlConfig
@@ -32,24 +33,24 @@ using MathNet.Numerics;
     */
     public class TableVerifier
     {
-        public static void Main()
+         public static void Main()
         {
-            string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
+            string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";//, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
             TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
 
             var sw = new Stopwatch();
             sw.Start();
 
             // Check profiles
-            verifier.GenerateProfileScores();
-            Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
-            sw.Stop();
-            var failing_profiles = verifier.GetFlaggingProfiles(0.5);
-
-            // // Check holes
-            // DataTable failing = verifier.CheckForHoles();
+            // verifier.GenerateProfileScores();
+            // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
             // sw.Stop();
-            // Console.WriteLine($"{sw.ElapsedMilliseconds}");
+            // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
+
+            // Check holes
+            DataTable failing = verifier.CheckForHoles();
+            sw.Stop();
+            Console.WriteLine($"{sw.ElapsedMilliseconds}");
         }
 
         /*
@@ -89,11 +90,12 @@ using MathNet.Numerics;
         */
         public DataTable CheckForHoles()
         {
-            // Reduce table to contain only table axes
-            string[] selectedColumns = TableAxesValues.Keys.ToArray();
-            DataTable justTableAxesTable = new DataView(_dataTable).ToTable(false, selectedColumns);
+            string[] tableAxesNames = TableAxesValues.Keys.ToArray();
+            DataTable justTableAxesTable = new DataView(_dataTable).ToTable(false, tableAxesNames);
 
-            DataTable holeAxesValuesTable = _dataTable.Clone();
+            DataTable holeAxesValuesTable = justTableAxesTable.Clone();
+            holeAxesValuesTable.Columns.Add(SearchAxisColumnName, typeof(string));
+
             holeAxesValuesTable.BeginLoadData();
 
             var tasks = new List<Task>();
@@ -101,7 +103,6 @@ using MathNet.Numerics;
             {
                 tasks.Add(Task.Factory.StartNew(() => checkForHolesHelper(searchAxisName, justTableAxesTable, ref holeAxesValuesTable)));
             }
-
             Task.WaitAll(tasks.ToArray());
 
             holeAxesValuesTable.EndLoadData();
@@ -186,23 +187,30 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var select5 = justTableAxesTable.Clone();
+                var singleSearchAxisDataTable = justTableAxesTable.Clone();
                 foreach(var row in arr5)
-                    select5.ImportRow(row);
+                    singleSearchAxisDataTable.ImportRow(row);
 
-                // Check if values exist for the the search axis with the other table values
-                var dataExistsAtSearchAxisValue = new bool[TableAxesValues[searchAxisName].Count()];
-                for(int i = 0; i < TableAxesValues[searchAxisName].Count(); i++)
+                var searchAxisNameCopy = searchAxisName;
+
+                singleSearchAxisDataTable.DefaultView.Sort = $"{searchAxisName} asc";
+                singleSearchAxisDataTable = singleSearchAxisDataTable.DefaultView.ToTable();
+
+                float[] searchAxisValues = TableAxesValues[searchAxisName];
+
+                float[] existentSearchAxisVals = singleSearchAxisDataTable.AsEnumerable().Select(s => (float)s.Field<double>(searchAxisNameCopy)).ToArray();
+                var dataExistsAtSearchAxisValue = new bool[searchAxisValues.Count()];
+                for(int i = 0; i < searchAxisValues.Count(); i++)
                 {
-                    var selectSearchAxisVal = select5.Select($"{searchAxisName} = {TableAxesValues[searchAxisName][i]}");
-                    dataExistsAtSearchAxisValue[i] = selectSearchAxisVal.Count() > 0;
+                    dataExistsAtSearchAxisValue[i] = existentSearchAxisVals.Contains(searchAxisValues[i]);
                 }
 
-                // Find holes in form Exists -> Does Not Exist -> Exists
-                for(int i = 1; i < dataExistsAtSearchAxisValue.Count() - 1; i++)
+                bool possiblyInHole = false;
+                for(int i = 1; i < dataExistsAtSearchAxisValue.Count(); i++)
                 {
-                    if(dataExistsAtSearchAxisValue[i-1] && ! dataExistsAtSearchAxisValue[i] && dataExistsAtSearchAxisValue[i+1])
+                    if(dataExistsAtSearchAxisValue[i] && possiblyInHole)
                     {
+                        possiblyInHole = false;
                         _mtx.WaitOne();
                         {
                             var holeRow = holeAxesValuesTable.NewRow();
@@ -212,14 +220,18 @@ using MathNet.Numerics;
                             holeRow[nonSearchAxisNames[3]] = val3;
                             holeRow[nonSearchAxisNames[4]] = val4;
                             holeRow[nonSearchAxisNames[5]] = val5;
-                            holeRow[searchAxisName] = TableAxesValues[searchAxisName][i];
+                            var hole_val = searchAxisValues[i-1];
+                            holeRow[searchAxisName] = searchAxisValues[i-1];
+                            holeRow[SearchAxisColumnName] = searchAxisName;
 
                             holeAxesValuesTable.Rows.Add(holeRow);
                         }
                         _mtx.ReleaseMutex();
+                    }else if(! dataExistsAtSearchAxisValue[i] && dataExistsAtSearchAxisValue[i-1])
+                    {
+                        possiblyInHole = true;
                     }
                 }
-                
             }}}}}}
         }
 
@@ -245,11 +257,11 @@ using MathNet.Numerics;
 
             // Ignore all cases with no dc flux, all NevinsN values except 1
             var singleNevinsNRows = _dataTable.Select($"NevinsN = {TableAxesValues["NevinsN"][_nevinsNIndex]} AND psieq_dc <> 0");
-            DataTable singleNevinsNDataDatable = _dataTable.Clone();
+            _singleNevinsNDataTable = _dataTable.Clone();
 
             foreach(var row in singleNevinsNRows)
             {
-                singleNevinsNDataDatable.ImportRow(row);
+                _singleNevinsNDataTable.ImportRow(row);
             }
             
             _profileScoresDataTable.BeginLoadData();
@@ -261,7 +273,7 @@ using MathNet.Numerics;
                 if(searchAxisName == "NevinsN")
                     continue;
                 
-                tasks.Add(Task.Factory.StartNew(() => generateProfileScoresHelper(searchAxisName, singleNevinsNDataDatable)));
+                tasks.Add(Task.Factory.StartNew(() => generateProfileScoresHelper(searchAxisName)));
             }
             
             Task.WaitAll(tasks.ToArray());
@@ -273,59 +285,82 @@ using MathNet.Numerics;
         /*
         @brief: Determines which profiles for which table axis combinations have best to average point removed fit
                     quality (BTAPRFQ) scores higher than an inputted threshold
-        @returns: List<FailingProfiles> denoting which profiles and table axis combinations are flagged
-        @detail: Multiple FailingProfiles may have the same table axes combinations as different profiles could be
+        @returns: List<FlaggingProfiles> denoting which profiles and table axis combinations are flagged
+        @detail: Multiple FlaggingProfiles may have the same table axes combinations as different profiles could be
                     flagged for the same combination
         */
-        public List<FailingProfile> GetFlaggingProfiles(double threshold){
-            var failingProfiles = new List<FailingProfile>();
+        public List<FlaggingProfile> GetFlaggingProfiles(double threshold){
+            var flaggingProfiles = new List<FlaggingProfile>();
 
             if(! _profileScoresDataTable.IsInitialized)
             {
-                Console.WriteLine("Must generate profile scores before getting failing profiles");
-                return failingProfiles;
+                Console.WriteLine("Must generate profile scores before getting flagging profiles");
+                return flaggingProfiles;
             }
 
             var columnNames = ProfileNamesOfInterest.Split(',');
             foreach(var columnName in columnNames)
             {
-                var failingRows = _profileScoresDataTable.Select($"{columnName} > {threshold}");
-                foreach(var failingRow in failingRows)
+                var flaggingRows = _profileScoresDataTable.Select($"{columnName} > {threshold}");
+                foreach(var flaggingRow in flaggingRows)
                 {
-                    var failingProfile = new FailingProfile();
+                    var flaggingProfile = new FlaggingProfile();
 
-                    string SearchAxisName = "";
+                    string searchAxisName = "";
+                    string selectProfileString = "";
                     var tableParams = new Dictionary<string, float>();
                     foreach(var axisName in TableAxesValues.Keys){
                         
-                        if(failingRow[axisName] == DBNull.Value){
-                            SearchAxisName = axisName;
-                            tableParams.Add(axisName, (float)failingRow[columnName + OffendingValueSuffix]);
+                        if(flaggingRow[axisName] == DBNull.Value){
+                            searchAxisName = axisName;
+                            tableParams.Add(axisName, (float)flaggingRow[columnName + OffendingValueSuffix]);
                         }else{
-                            tableParams.Add(axisName, (float)(double)failingRow[axisName]);
+                            var tableAxisValue = (float)(double)flaggingRow[axisName];
+                            tableParams.Add(axisName, tableAxisValue);
+                            selectProfileString += $"{axisName} = {tableAxisValue} AND ";
                         }   
                     }
-                    failingProfile.SearchAxis = SearchAxisName;
-                    failingProfile.ProfileColumnName = columnName;
-                    failingProfile.TableParams = tableParams;
-                    failingProfile.FilesLocation = GetFilesLocation();
+                    selectProfileString = selectProfileString.Substring(0, selectProfileString.Count() - 5);
 
-                    failingProfiles.Add(failingProfile);
+                    var temp_rows = _singleNevinsNDataTable.Select(selectProfileString);
+                    DataTable temp_dt = _singleNevinsNDataTable.Clone();
+                    foreach(var row in temp_rows)
+                    {
+                        temp_dt.ImportRow(row);
+                    }
+
+                    float[] flaggingProfileValues = temp_dt.AsEnumerable().Select(s => (float)s.Field<double>(columnName)).ToArray();
+
+                    flaggingProfile.SearchAxis = searchAxisName;
+                    flaggingProfile.ProfileColumnName = columnName;
+                    flaggingProfile.TableParams = tableParams;
+                    flaggingProfile.FilesLocation = GetFilesLocation();
+                    flaggingProfile.flaggingProfileValues = flaggingProfileValues;
+
+                    flaggingProfiles.Add(flaggingProfile);
                 }
             }
             
-            return failingProfiles;
+            return flaggingProfiles;
         }
 
-        private void generateProfileScoresHelper(in string searchAxisName, in DataTable singleNevinsNDataTable)
+        private void generateProfileScoresHelper(in string searchAxisName)
         {
             string[] profileNames = ProfileNamesOfInterest.Split(',');
 
             var nonSearchTableAxes = new Dictionary<string, float[]>();
 
+            // foreach(var pair in TableAxesValues){
+            //     if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
+            //     nonSearchTableAxes.Add(pair.Key, pair.Value);
+            // }
+
+            int subarr_length = 3;
             foreach(var pair in TableAxesValues){
                 if(pair.Key == searchAxisName || pair.Key == "NevinsN") continue;
-                nonSearchTableAxes.Add(pair.Key, pair.Value);
+                var vals = pair.Value;
+                vals = vals.Take(subarr_length).ToArray();
+                nonSearchTableAxes.Add(pair.Key, vals);
             }
 
             string[] nonSearchAxisNames = nonSearchTableAxes.Keys.ToArray();
@@ -337,12 +372,12 @@ using MathNet.Numerics;
             // Select table values corresponding to non-search axis values
             foreach(var val0 in nonSearchTableAxes[nonSearchAxisNames[0]])
             {
-                var arr0 = singleNevinsNDataTable.Select($"{nonSearchAxisNames[0]} = {val0}");
+                var arr0 = _singleNevinsNDataTable.Select($"{nonSearchAxisNames[0]} = {val0}");
                 if(arr0.Length == 0){
                     continue;
                 }
                 
-                var sort0 = singleNevinsNDataTable.Clone();
+                var sort0 = _singleNevinsNDataTable.Clone();
                 foreach(var row in arr0)
                     sort0.ImportRow(row);
             foreach(var val1 in nonSearchTableAxes[nonSearchAxisNames[1]])
@@ -352,7 +387,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var sort1 = singleNevinsNDataTable.Clone();
+                var sort1 = _singleNevinsNDataTable.Clone();
                 foreach(var row in arr1)
                     sort1.ImportRow(row);
             foreach(var val2 in nonSearchTableAxes[nonSearchAxisNames[2]])
@@ -362,7 +397,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var sort2 = singleNevinsNDataTable.Clone();
+                var sort2 = _singleNevinsNDataTable.Clone();
                 foreach(var row in arr2)
                     sort2.ImportRow(row);
             foreach(var val3 in nonSearchTableAxes[nonSearchAxisNames[3]])
@@ -372,7 +407,7 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var sort3 = singleNevinsNDataTable.Clone();
+                var sort3 = _singleNevinsNDataTable.Clone();
                 foreach(var row in arr3)
                     sort3.ImportRow(row);
             foreach(var val4 in nonSearchTableAxes[nonSearchAxisNames[4]])
@@ -382,9 +417,12 @@ using MathNet.Numerics;
                     continue;
                 }
                 
-                var profilesVersusSearchAxesDatatable = singleNevinsNDataTable.Clone();
+                var profilesVersusSearchAxesDatatable = _singleNevinsNDataTable.Clone();
                 foreach(var row in arr4)
                     profilesVersusSearchAxesDatatable.ImportRow(row);
+
+                profilesVersusSearchAxesDatatable.DefaultView.Sort = $"{searchAxisName} asc";
+                profilesVersusSearchAxesDatatable = profilesVersusSearchAxesDatatable.DefaultView.ToTable();
 
                 string subtitle = "";
 
@@ -465,6 +503,14 @@ using MathNet.Numerics;
 
         private void loadTable()
         {
+            string tableName = "xmltable.xml";
+            string schemaName = "schema.xsd";
+            if(File.Exists(tableName) && File.Exists(schemaName)){
+                _dataTable.ReadXmlSchema(schemaName);
+                _dataTable.ReadXml(tableName);
+                return;
+            }
+
             var tableKeys = TableAxesValues.Keys.ToArray();
 
             var queryColumns = "";
@@ -490,8 +536,10 @@ using MathNet.Numerics;
             {
                 connection.Open();
                 using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
-                getTableCommand.CommandTimeout = 500;
-                _dataTable.Load(getTableCommand.ExecuteReader()); 
+                getTableCommand.CommandTimeout = 1000;
+                _dataTable.Load(getTableCommand.ExecuteReader());
+                _dataTable.WriteXmlSchema(schemaName);
+                _dataTable.WriteXml(tableName);
                 connection.Close();
             }
         }
@@ -627,10 +675,11 @@ using MathNet.Numerics;
                     var key = pair.Key;
                     if(pair.Key == "CurrentRatio"){
                         for(int j = 0; j<vals.Count(); j++){
-                            vals[j] *= Convert.ToSingle(1e6);
+                            vals[j] = Convert.ToSingle(Math.Round(vals[j] * 1e6, 0));
                         }
                         key = "Ipl_setpoint";
                     }
+                    Array.Sort(vals); // sort in ascending order
                     TableAxesValues.Add(key, vals);
                 }
                 else{
@@ -679,7 +728,8 @@ using MathNet.Numerics;
         public Dictionary<String, float[]> TableAxesValues = new Dictionary<string, float[]>();
         public string TableName;
         public string ProfileNamesOfInterest;
-        public string OffendingValueSuffix = "_offending_val";
+        public const string OffendingValueSuffix = "_offending_val";
+        public const string SearchAxisColumnName = "search axis";
         #endregion
 
         #region Private Members
@@ -693,6 +743,7 @@ using MathNet.Numerics;
         // Has columns for each table axis, for each profile name denoting the best to mean fit difference, another for each
         // profile denoting the table axis value which resulted in the best fit with that point removed
         private DataTable _profileScoresDataTable;    
+        private DataTable _singleNevinsNDataTable;
         private Mutex _mtx = new Mutex();
         private const int _nevinsNIndex = 1;
         private const double _minProfileRange = 2e-2; // Threshold for minimum profile range as fraction of the profiles maximum
