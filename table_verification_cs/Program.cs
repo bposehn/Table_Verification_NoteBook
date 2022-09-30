@@ -64,56 +64,57 @@ using MathNet.Numerics;
     */
     public class TableVerifier : TableVerificationTool
     {
-        public static void Main()
-        {
-            string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";//, B261087_d05,B261087_d10,B261087_d15,B261087_d20,B261087_d25,B261087_d30,B261087_d35,B261087_d40,B261087_d45,B261087_d50";
-            TableVerifier verifier = new TableVerifier("pi3b_asbuilt_pfc17500ab_2022-06-09_b", columns_of_interest);
+        // public static void Main()
+        // {
+        //     string columns_of_interest = "q020,q050,q080,WBPolNoDCInFC,phiPlInFC,B161087,B211100,B291060,B215008,B261008,B291008,B261087";
+        //     string tableName = "pi3b_v25_pfc17500_2022-05-27";
+        //     TableVerifier verifier = new TableVerifier(tableName, columns_of_interest);
 
-            var sw = new Stopwatch();
-            sw.Start();
+        //     var sw = new Stopwatch();
+        //     sw.Start();
 
-            // Check profiles
-            // verifier.GenerateProfileScores();
-            // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
-            // sw.Stop();
-            // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
+        //     // Check profiles
+        //     // verifier.GenerateProfileScores();
+        //     // Console.WriteLine($"Took {sw.ElapsedMilliseconds} to generate profile scores");
+        //     // sw.Stop();
+        //     // var failing_profiles = verifier.GetFlaggingProfiles(0.3);
 
-            // Check holes
-            DataTable failing = verifier.CheckForHoles();
-            sw.Stop();
-            Console.WriteLine($"{sw.ElapsedMilliseconds}");
+        //     // Check holes
+        //     DataTable failing = verifier.CheckForHoles();
+        //     sw.Stop();
+        //     Console.WriteLine($"{sw.ElapsedMilliseconds}");
 
-            // // Test that all holes at least don't have their values in the table
-            // foreach(DataRow row in failing.Rows)
-            // {
-            //     string selectString = "";
-            //     foreach(string searchAxisName in verifier.TableAxesValues.Keys)
-            //     {
-            //         if(searchAxisName != (string)row[SearchAxisColumnName]){
-            //             var val = Convert.ToSingle(row[searchAxisName]);
-            //             if(searchAxisName != "Ipl_setpoint"){
-            //                 val = (float)Math.Round(val * 100f) / 100f;
-            //             }
-            //             selectString += $"{searchAxisName} = {val} AND ";
+        //     // Test that all holes at least don't have their values in the table
+        //     foreach(DataRow row in failing.Rows)
+        //     {
+        //         string selectString = "";
+        //         foreach(string searchAxisName in verifier.TableAxesValues.Keys)
+        //         {
+        //             if(searchAxisName != (string)row[SearchAxisColumnName]){
+        //                 var val = Convert.ToSingle(row[searchAxisName]);
+        //                 if(searchAxisName != "Ipl_setpoint"){
+        //                     val = (float)Math.Round(val * 100f) / 100f;
+        //                 }
+        //                 selectString += $"{searchAxisName} = {val} AND ";
 
-            //         }
-            //     }
-            //     selectString = selectString.Substring(0, selectString.Count()-5);
-            //     DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
+        //             }
+        //         }
+        //         selectString = selectString.Substring(0, selectString.Count()-5);
+        //         DataRow[] selectedRows = verifier.GetDataTable().Select(selectString);
 
-            //     var selectTable = verifier.GetDataTable().Clone();
-            //     foreach(DataRow roww in selectedRows)
-            //         selectTable.ImportRow(roww);
+        //         var selectTable = verifier.GetDataTable().Clone();
+        //         foreach(DataRow roww in selectedRows)
+        //             selectTable.ImportRow(roww);
 
-            //     string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
-            //     float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
-            //     if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
-            //         Console.WriteLine("miss");
-            //     }else{
-            //         Console.WriteLine("hit");
-            //     }
-            // }
-        }
+        //         string offendingSearchAxisName = Convert.ToString(row[SearchAxisColumnName]);
+        //         float[] axisValues = selectTable.AsEnumerable().Select(s => (float)s.Field<double>(offendingSearchAxisName)).ToArray();
+        //         if(! axisValues.Contains(Convert.ToSingle(row[offendingSearchAxisName]))){
+        //             Console.WriteLine("miss");
+        //         }else{
+        //             Console.WriteLine("hit");
+        //         }
+        //     }
+        // }
 
         /*
         @brief: Populates TableAxesValues from yaml file and loads all table axis and profile columns from the SQL table
@@ -557,13 +558,13 @@ using MathNet.Numerics;
 
         private void loadTable()
         {
-            string tableName = "xmltable.xml";
-            string schemaName = "schema.xsd";
-            if(File.Exists(tableName) && File.Exists(schemaName)){
-                _dataTable.ReadXmlSchema(schemaName);
-                _dataTable.ReadXml(tableName);
-                return;
-            }
+            // string tableName = "xmltable.xml";
+            // string schemaName = "schema.xsd";
+            // if(File.Exists(tableName) && File.Exists(schemaName)){
+            //     _dataTable.ReadXmlSchema(schemaName);
+            //     _dataTable.ReadXml(tableName);
+            //     return;
+            // }
 
             var tableKeys = TableAxesValues.Keys.ToArray();
 
@@ -592,8 +593,8 @@ using MathNet.Numerics;
                 using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
                 getTableCommand.CommandTimeout = 1000;
                 _dataTable.Load(getTableCommand.ExecuteReader());
-                _dataTable.WriteXmlSchema(schemaName);
-                _dataTable.WriteXml(tableName);
+                // _dataTable.WriteXmlSchema(schemaName);
+                // _dataTable.WriteXml(tableName);
                 connection.Close();
             }
         }
@@ -804,40 +805,104 @@ using MathNet.Numerics;
 
     public class TableComparer : TableVerificationTool
     {
-        // public static void Main()
-        // {
-        //     var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc17500ab_2022-06-09");
-        //     var sw = new Stopwatch();
-        //     var differingFileNames = tableComparer.ViewDifferingFileNames();
-        //     var n = differingFileNames.Rows.Count;
-        // }
+        public static void Main()
+        {
+            var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc_G486a_2022-09-18");
+            var sw = new Stopwatch();
+            sw.Start();
+            // var differingFileNames = tableComparer.ViewDifferingFileNames();
+            // var n = differingFileNames.Rows.Count;
+
+            DataTable dt = tableComparer.getColumnDifferences("q020, q050");
+            sw.Stop();
+            int n = dt.Rows.Count;
+        }
 
         public TableComparer(string table1Name, string table2Name)
         {
             Table1Name = table1Name;
             Table2Name = table2Name;
-        
-            // string[] tableNames = new string[] {table1Name, table2Name};
-            // DataTable[] dataTables = new DataTable[] {_dataTable1, _dataTable2};
+        }
 
-            // // Load in both entire tables
-            // // The entire table would be ~16Gb
-            // var tableInformation = tableNames.Zip(dataTables);
-            // foreach(var singleTableInformation in tableInformation)
-            // {
-            //     string tableName = singleTableInformation.First;
-            //     DataTable table = singleTableInformation.Second;
+        public DataTable getColumnDifferences(in string columns)
+        {
+            string noWhiteSpaceColumns = columns.Replace(" ", string.Empty);
+            string[] tableNames = new string[] {Table1Name, Table2Name};
 
-            //     var getTableCommandString = $"SELECT * FROM {_databaseName}.`{tableName}`"; // is this too much space ? 
-            //     using(var connection = new MySqlConnection(_connectionString))
-            //     {
-            //         connection.Open();
-            //         using var getTableCommand = new MySqlCommand(getTableCommandString, connection);
-            //         getTableCommand.CommandTimeout = 1000;
-            //         table.Load(getTableCommand.ExecuteReader());
-            //         connection.Close();
-            //     }
-            // }
+            DataTable table1 = new DataTable();
+            DataTable table2 = new DataTable();
+            DataTable[] dataTables = new DataTable[] {table1, table2};
+
+            for(int i = 0; i < tableNames.Count(); i++)
+            {
+                string selectTableColumnsCommandString = $"SELECT {columns}, {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}` ORDER BY {FileNameColumnName} LIMIT 100000";
+                using(var connection = new MySqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    using var selectTableColumnsCommand = new MySqlCommand(selectTableColumnsCommandString, connection);
+                    selectTableColumnsCommand.CommandTimeout = 200;
+                    dataTables[i].Load(selectTableColumnsCommand.ExecuteReader());
+                }
+            }
+
+            table1.PrimaryKey = new DataColumn[] {table1.Columns[FileNameColumnName]};
+            table2.PrimaryKey = new DataColumn[] {table2.Columns[FileNameColumnName]};
+
+            var table1FileNames = new HashSet<string>(GetColumnFromTable<string>(table1, FileNameColumnName));
+            var table2FileNames = new HashSet<string>(GetColumnFromTable<string>(table2, FileNameColumnName));
+
+            var sharedFileNames = table1FileNames;
+            sharedFileNames.Intersect(table2FileNames); 
+
+            const string firstDifferingFileNameColumnName = "FirstDiffering" + FileNameColumnName;
+            const string numberOfDifferingColumnEntriesColumnName = "NumberOfDifferingEntries";
+            const string averageDifferenceColumName = "AverageDifference";
+            const string comparingColumnNameColumnName = "ColumnName";
+
+            DataTable differingValues = new DataTable();
+            differingValues.Columns.Add(firstDifferingFileNameColumnName, typeof(string));
+            differingValues.Columns.Add(numberOfDifferingColumnEntriesColumnName, typeof(float));
+            differingValues.Columns.Add(averageDifferenceColumName, typeof(float));
+            differingValues.Columns.Add(comparingColumnNameColumnName, typeof(string));
+
+            foreach(string columnName in noWhiteSpaceColumns.Split(","))
+            {
+                int numberDiffering = 0;
+                float summedDifference = 0;
+                string firstDifferingFileName = "";
+                foreach(var fileName in sharedFileNames)
+                {
+                    DataRow table1Row = table1.Rows.Find(fileName);
+                    DataRow table2Row = table2.Rows.Find(fileName);
+
+                    if(table1Row == null || table2Row == null)
+                        continue;
+
+                    if(firstDifferingFileName == "")
+                        firstDifferingFileName = fileName;
+
+                    if(table1Row[columnName] == DBNull.Value || table2Row[columnName] == DBNull.Value)
+                        continue;
+
+                    float table1Value = (float)(double)table1Row[columnName];
+                    float table2Value = (float)(double)table2Row[columnName];
+                    if(table1Value != table2Value)
+                    {
+                        numberDiffering++;
+                        summedDifference += Math.Abs(table1Value - table2Value);
+                    }
+                }
+
+                DataRow rowForColumnName = differingValues.NewRow();
+                rowForColumnName["FirstDiffering" + FileNameColumnName] = firstDifferingFileName;
+                rowForColumnName["NumberOfDifferingEntries"] = numberDiffering;
+                rowForColumnName["AverageDifference"] = summedDifference / numberDiffering;
+                rowForColumnName["ColumnName"] = columnName;
+
+                differingValues.Rows.Add(rowForColumnName);
+            }
+
+            return differingValues;
         }
 
         public DataTable ViewDifferingFileNames()
@@ -847,12 +912,12 @@ using MathNet.Numerics;
             differingFileNames.Columns.Add(FileNameColumnName);
             differingFileNames.Columns.Add(OwnerTableColumnName);
 
-            string[] fileNames = new string[] {Table1Name, Table2Name};
+            string[] tableNames = new string[] {Table1Name, Table2Name};
             List<string>[] fileNameColumns = new List<string>[2];
 
-            for(int i = 0; i < fileNames.Count(); i++)
+            for(int i = 0; i < tableNames.Count(); i++)
             {
-                string selectFileNamesColumnCmdString = $"SELECT {FileNameColumnName} FROM {_databaseName}.`{fileNames[i]}`";
+                string selectFileNamesColumnCmdString = $"SELECT {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}`";
                 using(var connection = new MySqlConnection(_connectionString))
                 {
                     connection.Open();
@@ -890,7 +955,6 @@ using MathNet.Numerics;
         public readonly string Table2Name;
         public const string FileNameColumnName = "FileName";
         public const string OwnerTableColumnName = "OwnerTable";
-
         private DataTable _dataTable1;
         private DataTable _dataTable2;
     }
