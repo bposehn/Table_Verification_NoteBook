@@ -807,15 +807,17 @@ using MathNet.Numerics;
     {
         public static void Main()
         {
-            var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc17500ab_2022-06-09");
+            var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc_g486a_2022-09-18_0");
             var sw = new Stopwatch();
             sw.Start();
-            // var differingFileNames = tableComparer.ViewDifferingFileNames();
-            // var n = differingFileNames.Rows.Count;
 
-            DataTable dt = tableComparer.getColumnDifferences("q020, q050");
+            var differingFileNames = tableComparer.ViewDifferingFileNames();
             sw.Stop();
-            int n = dt.Rows.Count;
+            var n = differingFileNames.Rows.Count;
+
+            // DataTable dt = tableComparer.getColumnDifferences("q020, q050");
+            // sw.Stop();
+            // int n = dt.Rows.Count;
         }
 
         public TableComparer(string table1Name, string table2Name)
@@ -835,7 +837,7 @@ using MathNet.Numerics;
 
             for(int i = 0; i < tableNames.Count(); i++)
             {
-                string selectTableColumnsCommandString = $"SELECT {columns}, {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}` LIMIT 10000";
+                string selectTableColumnsCommandString = $"SELECT {columns}, {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}`";
                 using(var connection = new MySqlConnection(_connectionString))
                 {
                     connection.Open();
@@ -848,18 +850,38 @@ using MathNet.Numerics;
             table1.PrimaryKey = new DataColumn[] {table1.Columns[FileNameColumnName]};
             table2.PrimaryKey = new DataColumn[] {table2.Columns[FileNameColumnName]};
 
-            var table1FileNames = new HashSet<string>(GetColumnFromTable<string>(table1, FileNameColumnName));
-            var table2FileNames = new HashSet<string>(GetColumnFromTable<string>(table2, FileNameColumnName));
+            string[] table1FileNamesWDate = GetColumnFromTable<string>(table1, FileNameColumnName);
+            string[] table2FileNamesWDate = GetColumnFromTable<string>(table2, FileNameColumnName);
+
+            string[] table1FileNames = new string[table1FileNamesWDate.Count()];
+            string[] table2FileNames = new string[table2FileNamesWDate.Count()];
+
+            const int dateSuffixLength = 15;
+            string table1DateSuffix = table1FileNamesWDate[0].Substring(table1FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
+            string table2DateSuffix = table2FileNamesWDate[0].Substring(table2FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
+
+            for(int i = 0; i<table1FileNamesWDate.Count(); i++){
+                table1FileNames[i] = table1FileNamesWDate[i].Substring(0, table1FileNamesWDate[i].Count() - dateSuffixLength);
+            }
+
+            for(int i = 0; i<table2FileNamesWDate.Count(); i++){
+                table2FileNames[i] = table2FileNamesWDate[i].Substring(0, table2FileNamesWDate[i].Count() - dateSuffixLength);
+            }
+
+            var table1FileNamesSet = new HashSet<string>(table1FileNames);
+            var table2FileNamesSet = new HashSet<string>(table2FileNames);
 
             var sharedFileNames = table1FileNames.Intersect(table2FileNames); 
 
-            const string firstDifferingFileNameColumnName = "FirstDiffering" + FileNameColumnName;
+            const string table1FirstDifferingFileNameColumnName = "Table1FirstDiffering" + FileNameColumnName;
+            const string table2FirstDifferingFileNameColumnName = "Table2FirstDiffering" + FileNameColumnName;
             const string numberOfDifferingColumnEntriesColumnName = "NumberOfDifferingEntries";
             const string averageDifferenceColumName = "AverageDifference";
             const string comparingColumnNameColumnName = "ColumnName";
 
             DataTable differingValues = new DataTable();
-            differingValues.Columns.Add(firstDifferingFileNameColumnName, typeof(string));
+            differingValues.Columns.Add(table1FirstDifferingFileNameColumnName, typeof(string));
+            differingValues.Columns.Add(table2FirstDifferingFileNameColumnName, typeof(string));
             differingValues.Columns.Add(numberOfDifferingColumnEntriesColumnName, typeof(float));
             differingValues.Columns.Add(averageDifferenceColumName, typeof(float));
             differingValues.Columns.Add(comparingColumnNameColumnName, typeof(string));
@@ -871,14 +893,11 @@ using MathNet.Numerics;
                 string firstDifferingFileName = "";
                 foreach(var fileName in sharedFileNames)
                 {
-                    DataRow table1Row = table1.Rows.Find(fileName);
-                    DataRow table2Row = table2.Rows.Find(fileName);
+                    DataRow table1Row = table1.Rows.Find(fileName + table1DateSuffix);
+                    DataRow table2Row = table2.Rows.Find(fileName + table2DateSuffix);
 
                     if(table1Row == null || table2Row == null)
                         continue;
-
-                    if(firstDifferingFileName == "")
-                        firstDifferingFileName = fileName;
 
                     if(table1Row[columnName] == DBNull.Value || table2Row[columnName] == DBNull.Value)
                         continue;
@@ -887,16 +906,20 @@ using MathNet.Numerics;
                     float table2Value = (float)(double)table2Row[columnName];
                     if(table1Value != table2Value)
                     {
+                        if(firstDifferingFileName == "")
+                            firstDifferingFileName = fileName;
+
                         numberDiffering++;
                         summedDifference += Math.Abs(table1Value - table2Value);
                     }
                 }
 
                 DataRow rowForColumnName = differingValues.NewRow();
-                rowForColumnName["FirstDiffering" + FileNameColumnName] = firstDifferingFileName;
-                rowForColumnName["NumberOfDifferingEntries"] = numberDiffering;
-                rowForColumnName["AverageDifference"] = summedDifference / numberDiffering;
-                rowForColumnName["ColumnName"] = columnName;
+                rowForColumnName[table2FirstDifferingFileNameColumnName] = firstDifferingFileName + table2DateSuffix;
+                rowForColumnName[table1FirstDifferingFileNameColumnName] = firstDifferingFileName + table1DateSuffix;
+                rowForColumnName[numberOfDifferingColumnEntriesColumnName] = numberDiffering;
+                rowForColumnName[averageDifferenceColumName] = summedDifference / numberDiffering;
+                rowForColumnName[comparingColumnNameColumnName] = columnName;
 
                 differingValues.Rows.Add(rowForColumnName);
             }
@@ -927,21 +950,40 @@ using MathNet.Numerics;
                 }
             }
 
-            var table1Values = new HashSet<string>(fileNameColumns[0]);
-            var table2Values = new HashSet<string>(fileNameColumns[1]);
+            var table1FileNamesWDate = fileNameColumns[0];
+            var table2FileNamesWDate = fileNameColumns[1];
+
+            string[] table1FileNames = new string[table1FileNamesWDate.Count()];
+            string[] table2FileNames = new string[table2FileNamesWDate.Count()];
+
+            const int dateSuffixLength = 15;
+            string table1DateSuffix = table1FileNamesWDate[0].Substring(table1FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
+            string table2DateSuffix = table2FileNamesWDate[0].Substring(table2FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
+
+            for(int i = 0; i<table1FileNamesWDate.Count(); i++){
+                table1FileNames[i] = table1FileNamesWDate[i].Substring(0, table1FileNamesWDate[i].Count() - dateSuffixLength);
+            }
+
+            for(int i = 0; i<table2FileNamesWDate.Count(); i++){
+                table2FileNames[i] = table2FileNamesWDate[i].Substring(0, table2FileNamesWDate[i].Count() - dateSuffixLength);
+            }
+
+            var table1Values = new HashSet<string>(table1FileNames);
+            var table2Values = new HashSet<string>(table2FileNames);
 
             var uniqueFileNames = new HashSet<string>(table1Values);
-            uniqueFileNames.SymmetricExceptWith(table2Values); // modifies uniqueFilenames to contain all values not in both sets
+            uniqueFileNames.SymmetricExceptWith(table2Values);
 
             foreach(string uniqueFileName in uniqueFileNames)
             {   
                 DataRow uniqueFileNameRow = differingFileNames.NewRow();
-                uniqueFileNameRow[FileNameColumnName] = uniqueFileName;
                 if(table1Values.Contains(uniqueFileName))
                 {
                     uniqueFileNameRow[OwnerTableColumnName] = Table1Name;
+                    uniqueFileNameRow[FileNameColumnName] = uniqueFileName + table1DateSuffix;
                 }else{
                     uniqueFileNameRow[OwnerTableColumnName] = Table2Name;
+                    uniqueFileNameRow[FileNameColumnName] = uniqueFileName + table2DateSuffix;
                 }
 
                 differingFileNames.Rows.Add(uniqueFileNameRow);
