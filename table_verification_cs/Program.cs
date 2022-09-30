@@ -807,7 +807,7 @@ using MathNet.Numerics;
     {
         public static void Main()
         {
-            var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc_G486a_2022-09-18");
+            var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc17500ab_2022-06-09");
             var sw = new Stopwatch();
             sw.Start();
             // var differingFileNames = tableComparer.ViewDifferingFileNames();
@@ -835,7 +835,7 @@ using MathNet.Numerics;
 
             for(int i = 0; i < tableNames.Count(); i++)
             {
-                string selectTableColumnsCommandString = $"SELECT {columns}, {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}` ORDER BY {FileNameColumnName} LIMIT 100000";
+                string selectTableColumnsCommandString = $"SELECT {columns}, {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}` LIMIT 10000";
                 using(var connection = new MySqlConnection(_connectionString))
                 {
                     connection.Open();
@@ -851,8 +851,7 @@ using MathNet.Numerics;
             var table1FileNames = new HashSet<string>(GetColumnFromTable<string>(table1, FileNameColumnName));
             var table2FileNames = new HashSet<string>(GetColumnFromTable<string>(table2, FileNameColumnName));
 
-            var sharedFileNames = table1FileNames;
-            sharedFileNames.Intersect(table2FileNames); 
+            var sharedFileNames = table1FileNames.Intersect(table2FileNames); 
 
             const string firstDifferingFileNameColumnName = "FirstDiffering" + FileNameColumnName;
             const string numberOfDifferingColumnEntriesColumnName = "NumberOfDifferingEntries";
