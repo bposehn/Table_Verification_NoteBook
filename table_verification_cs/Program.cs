@@ -54,8 +54,83 @@ using MathNet.Numerics;
 
             return column;
         }
+
+        protected string getTableAxesYamlFilename(in string tableName)
+        {
+            string getTableAxesYamlFilenameCommandString =
+             $"SELECT YamlFilename, FilesLocation FROM {_databaseName}." + _metadataTableName + " WHERE TableName = '" + tableName + "'";
+            
+            using var connection = new MySqlConnection(_connectionString);
+            connection.Open();
+            using var getTableAxesYamlFilenameCommand = new MySqlCommand(getTableAxesYamlFilenameCommandString, connection);
+
+            using MySqlDataReader reader = getTableAxesYamlFilenameCommand.ExecuteReader();
+
+            reader.Read();
+            var tableAxesYamlFilename = reader.GetString("YamlFilename");
+            var fileLocation = reader.GetString("FilesLocation");
+            fileLocation = fileLocation.Substring(0, fileLocation.Length - 6);
+
+            return Path.Combine(Environment.GetEnvironmentVariable("FS_ARCHIVE_ROOT"), fileLocation, tableAxesYamlFilename);
+        }
+
+        protected Dictionary<string, float[]> getTableAxesValues(in string tableName)
+        {
+
+            string tableAxesYamlFilename = getTableAxesYamlFilename(tableName);
+
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance).Build();
+
+            string yamlText = "";
+
+            Dictionary<string, float[]> tableAxesValues = new Dictionary<string, float[]>();
+
+            if(File.Exists(tableAxesYamlFilename)){
+                yamlText = File.ReadAllText(tableAxesYamlFilename);
+            }else{
+                Console.WriteLine("ERROR yaml file to read table axes cannot be found: ", tableAxesYamlFilename);
+                return tableAxesValues;
+            }
+
+            yamlText = yamlText.Substring(yamlText.IndexOf("table_axes:"), yamlText.IndexOf("num_equilibria:") - yamlText.IndexOf("table_axes:"));
+            var content = deserializer.Deserialize<YamlConfig>(yamlText);
+
+            foreach(var pair in content.table_axes){
+                if(pair.Value.GetType() == typeof(String)){
+                    // this is NevinsB: NevinsA which we can just skip
+                    continue;
+                }
+                else if(pair.Value.GetType() == typeof(List<Object>)){
+                    var obj_list = (List<Object>)pair.Value;
+                    var vals = new float[obj_list.Count];
+                    int i = 0;
+                    foreach(var val in obj_list){
+                        if(val.GetType() == typeof(String)){
+                            vals[i] = Convert.ToSingle(val);
+                            i++;
+                        }
+                    }
+                    var key = pair.Key;
+                    if(pair.Key == "CurrentRatio"){
+                        for(int j = 0; j<vals.Count(); j++){
+                            vals[j] = Convert.ToSingle(Math.Round(vals[j] * 1e6, 0));
+                        }
+                        key = "Ipl_setpoint";
+                    }
+                    Array.Sort(vals); // sort in ascending order
+                    tableAxesValues.Add(key, vals);
+                }
+                else{
+                    Console.WriteLine("ERROR unexpected type encountered reading yaml file");
+                }
+            }
+
+            return tableAxesValues;
+        }
+
         protected const string _connectionString = @"server=gfyvrmysql01.gf.local; userid=RSB; password=; database=GradShafranov";
         protected const string _databaseName = "gradshafranov";
+        protected const string _metadataTableName = "lut_metadata";
     }
 
     /*
@@ -126,7 +201,7 @@ using MathNet.Numerics;
             TableName = tableName;
             ProfileNamesOfInterest = profileNamesOfInterest;
 
-            populateTableAxesValues();
+            TableAxesValues = getTableAxesValues(TableName);
             loadTable();
         }
 
@@ -693,74 +768,6 @@ using MathNet.Numerics;
 
             return tableColumnNames;
         }
-        private void populateTableAxesValues()
-        {
-            string tableAxesYamlFilename = getTableAxesYamlFilename();
-
-            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance).Build();
-
-            string yamlText = "";
-
-            if(File.Exists(tableAxesYamlFilename)){
-                yamlText = File.ReadAllText(tableAxesYamlFilename);
-            }else{
-                Console.WriteLine("ERROR yaml file to read table axes cannot be found: ", tableAxesYamlFilename);
-                return;
-            }
-
-            yamlText = yamlText.Substring(yamlText.IndexOf("table_axes:"), yamlText.IndexOf("num_equilibria:") - yamlText.IndexOf("table_axes:"));
-
-            var content = deserializer.Deserialize<YamlConfig>(yamlText);
-
-            foreach(var pair in content.table_axes){
-                if(pair.Value.GetType() == typeof(String)){
-                    // this is NevinsB: NevinsA which we can just skip
-                    continue;
-                }
-                else if(pair.Value.GetType() == typeof(List<Object>)){
-                    var obj_list = (List<Object>)pair.Value;
-                    var vals = new float[obj_list.Count];
-                    int i = 0;
-                    foreach(var val in obj_list){
-                        if(val.GetType() == typeof(String)){
-                            vals[i] = Convert.ToSingle(val);
-                            i++;
-                        }
-                    }
-                    var key = pair.Key;
-                    if(pair.Key == "CurrentRatio"){
-                        for(int j = 0; j<vals.Count(); j++){
-                            vals[j] = Convert.ToSingle(Math.Round(vals[j] * 1e6, 0));
-                        }
-                        key = "Ipl_setpoint";
-                    }
-                    Array.Sort(vals); // sort in ascending order
-                    TableAxesValues.Add(key, vals);
-                }
-                else{
-                    Console.WriteLine("ERROR unexpected type encountered reading yaml file");
-                }
-            }
-        }
-
-        private string getTableAxesYamlFilename()
-        {
-            string getTableAxesYamlFilenameCommandString =
-             $"SELECT YamlFilename, FilesLocation FROM {_databaseName}." + _metadataTableName + " WHERE TableName = '" + TableName + "'";
-            
-            using var connection = new MySqlConnection(_connectionString);
-            connection.Open();
-            using var getTableAxesYamlFilenameCommand = new MySqlCommand(getTableAxesYamlFilenameCommandString, connection);
-
-            using MySqlDataReader reader = getTableAxesYamlFilenameCommand.ExecuteReader();
-
-            reader.Read();
-            var tableAxesYamlFilename = reader.GetString("YamlFilename");
-            var fileLocation = reader.GetString("FilesLocation");
-            fileLocation = fileLocation.Substring(0, fileLocation.Length - 6);
-
-            return Path.Combine(Environment.GetEnvironmentVariable("FS_ARCHIVE_ROOT"), fileLocation, tableAxesYamlFilename);
-        }
 
         public string GetFilesLocation()
         {
@@ -788,7 +795,6 @@ using MathNet.Numerics;
         #endregion
 
         #region Private Members
-        private const string _metadataTableName = "lut_metadata";
         
         // Contains all data from the table
         private DataTable _dataTable = new DataTable();
@@ -807,14 +813,19 @@ using MathNet.Numerics;
     {
         public static void Main()
         {
-            var tableComparer = new TableComparer("pi3b_asbuilt_pfc17500ab_2022-06-09_b", "pi3b_asbuilt_pfc_g486a_2022-09-18_0");
+            // var tableComparer = new TableComparer("pi3b_v25_21oct-pfc_2022-03-03", "pi3b_v25_pfc17500_2022-05-27"); //1098254
+            // var tableComparer = new TableComparer("pi3b_asbuilt_pfc_g486a_2022-09-18_0", "pi3b_asbuilt_pfc17500ab_2022-06-09_b"); //122962 filenames diff
+            var tableComparer = new TableComparer("pi3b_asbuilt_pfc_g486a_2022-09-18_0", "pi3b_asbuilt_pfc_g486a_2022-09-18"); //1098254
+
             var sw = new Stopwatch();
             sw.Start();
 
             var differingFileNames = tableComparer.ViewDifferingFileNames();
             sw.Stop();
-            var n = differingFileNames.Rows.Count;
-
+            var filenames = tableComparer.GetColumnFromTable<string>(differingFileNames, TableComparer.FileNameColumnName);
+            var ownerTable = tableComparer.GetColumnFromTable<string>(differingFileNames, TableComparer.OwnerTableColumnName);
+            var n = filenames.Count();
+            
             // DataTable dt = tableComparer.getColumnDifferences("q020, q050");
             // sw.Stop();
             // int n = dt.Rows.Count;
@@ -856,16 +867,18 @@ using MathNet.Numerics;
             string[] table1FileNames = new string[table1FileNamesWDate.Count()];
             string[] table2FileNames = new string[table2FileNamesWDate.Count()];
 
-            const int dateSuffixLength = 15;
-            string table1DateSuffix = table1FileNamesWDate[0].Substring(table1FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
-            string table2DateSuffix = table2FileNamesWDate[0].Substring(table2FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
+            int table1DateSuffixLength = getFileSuffixLength(table1FileNamesWDate[0]);
+            int table2DateSuffixLength = getFileSuffixLength(table1FileNamesWDate[1]);
+
+            string table1DateSuffix = table1FileNamesWDate[0].Substring(table1FileNamesWDate[0].Count() - table1DateSuffixLength, table1DateSuffixLength);
+            string table2DateSuffix = table2FileNamesWDate[0].Substring(table2FileNamesWDate[0].Count() - table2DateSuffixLength, table2DateSuffixLength);
 
             for(int i = 0; i<table1FileNamesWDate.Count(); i++){
-                table1FileNames[i] = table1FileNamesWDate[i].Substring(0, table1FileNamesWDate[i].Count() - dateSuffixLength);
+                table1FileNames[i] = table1FileNamesWDate[i].Substring(0, table1FileNamesWDate[i].Count() - table1DateSuffixLength);
             }
 
             for(int i = 0; i<table2FileNamesWDate.Count(); i++){
-                table2FileNames[i] = table2FileNamesWDate[i].Substring(0, table2FileNamesWDate[i].Count() - dateSuffixLength);
+                table2FileNames[i] = table2FileNamesWDate[i].Substring(0, table2FileNamesWDate[i].Count() - table2DateSuffixLength);
             }
 
             var table1FileNamesSet = new HashSet<string>(table1FileNames);
@@ -927,6 +940,17 @@ using MathNet.Numerics;
             return differingValues;
         }
 
+        private int getFileSuffixLength(in string fileName)
+        {
+            char searchChar = '.';
+            int occurrencePosition = fileName.Count(f => (f == searchChar)) - 1; 
+            var result = fileName.Select((c, i) => new { Char = c, Index = i })
+                            .Where(item => item.Char == searchChar)
+                            .Skip(occurrencePosition - 1)
+                            .FirstOrDefault();
+            return fileName.Count() - result.Index;
+        }
+
         public DataTable ViewDifferingFileNames()
         {
             DataTable differingFileNames = new DataTable();
@@ -934,17 +958,59 @@ using MathNet.Numerics;
             differingFileNames.Columns.Add(FileNameColumnName);
             differingFileNames.Columns.Add(OwnerTableColumnName);
 
+            if(Table1AxesValues == null)
+                Table1AxesValues = getTableAxesValues(Table1Name);
+
+            if(Table2AxesValues == null)
+                Table2AxesValues = getTableAxesValues(Table2Name);
+
+            var differingTableAxesValues = new Dictionary<string, List<float>>();
+            foreach(var table1AxisPair in Table1AxesValues)
+            {
+                differingTableAxesValues.Add(table1AxisPair.Key, new List<float>());
+                var table1Set = new HashSet<float>(table1AxisPair.Value);
+                var table2Set = new HashSet<float>(Table2AxesValues[table1AxisPair.Key]);
+
+                var uniqueValues = table1Set;
+                uniqueValues.SymmetricExceptWith(table2Set);
+                foreach(var uniqueValue in uniqueValues)
+                {
+                    differingTableAxesValues[table1AxisPair.Key].Add(uniqueValue);
+                }
+            }
+
+            // Ignore table axis values not present in both tables
+            string removeDifferentAxisValuesString = "";
+            foreach(var differingValuesPair in differingTableAxesValues)
+            {
+                if(differingValuesPair.Value.Count() != 0)
+                {
+                    foreach(float differingValue in differingValuesPair.Value)
+                    {
+                        removeDifferentAxisValuesString += $"NOT {differingValuesPair.Key} = {differingValue} AND ";
+                    }
+                }
+            }
+            if(removeDifferentAxisValuesString.Count() > 0)
+            {
+                removeDifferentAxisValuesString = "WHERE " + removeDifferentAxisValuesString.Substring(0, removeDifferentAxisValuesString.Count() - 5);
+            }else
+            {
+                removeDifferentAxisValuesString = "";
+            }
+
             string[] tableNames = new string[] {Table1Name, Table2Name};
             List<string>[] fileNameColumns = new List<string>[2];
 
             for(int i = 0; i < tableNames.Count(); i++)
             {
-                string selectFileNamesColumnCmdString = $"SELECT {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}`";
+                string selectFileNamesColumnCmdString = $"SELECT {FileNameColumnName} FROM {_databaseName}.`{tableNames[i]}` {removeDifferentAxisValuesString}";
                 using(var connection = new MySqlConnection(_connectionString))
                 {
                     connection.Open();
                     using var selectFileNamesColumnCmd = new MySqlCommand(selectFileNamesColumnCmdString, connection);
                     DataTable fileNamesDataTable = new DataTable();
+                    selectFileNamesColumnCmd.CommandTimeout = 200;
                     fileNamesDataTable.Load(selectFileNamesColumnCmd.ExecuteReader());
                     fileNameColumns[i] = GetColumnFromTable<string>(fileNamesDataTable, "FileName").ToList();
                 }
@@ -956,16 +1022,18 @@ using MathNet.Numerics;
             string[] table1FileNames = new string[table1FileNamesWDate.Count()];
             string[] table2FileNames = new string[table2FileNamesWDate.Count()];
 
-            const int dateSuffixLength = 15;
-            string table1DateSuffix = table1FileNamesWDate[0].Substring(table1FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
-            string table2DateSuffix = table2FileNamesWDate[0].Substring(table2FileNamesWDate[0].Count() - dateSuffixLength, dateSuffixLength);
+            int table1DateSuffixLength = getFileSuffixLength(table1FileNamesWDate[0]);
+            int table2DateSuffixLength = getFileSuffixLength(table1FileNamesWDate[1]);
+
+            string table1DateSuffix = table1FileNamesWDate[0].Substring(table1FileNamesWDate[0].Count() - table1DateSuffixLength, table1DateSuffixLength);
+            string table2DateSuffix = table2FileNamesWDate[0].Substring(table2FileNamesWDate[0].Count() - table2DateSuffixLength, table2DateSuffixLength);
 
             for(int i = 0; i<table1FileNamesWDate.Count(); i++){
-                table1FileNames[i] = table1FileNamesWDate[i].Substring(0, table1FileNamesWDate[i].Count() - dateSuffixLength);
+                table1FileNames[i] = table1FileNamesWDate[i].Substring(0, table1FileNamesWDate[i].Count() - table1DateSuffixLength);
             }
 
             for(int i = 0; i<table2FileNamesWDate.Count(); i++){
-                table2FileNames[i] = table2FileNamesWDate[i].Substring(0, table2FileNamesWDate[i].Count() - dateSuffixLength);
+                table2FileNames[i] = table2FileNamesWDate[i].Substring(0, table2FileNamesWDate[i].Count() - table2DateSuffixLength);
             }
 
             var table1Values = new HashSet<string>(table1FileNames);
@@ -994,9 +1062,10 @@ using MathNet.Numerics;
 
         public readonly string Table1Name;
         public readonly string Table2Name;
+        public Dictionary<string, float[]> Table1AxesValues;
+        public Dictionary<string, float[]> Table2AxesValues;
+
         public const string FileNameColumnName = "FileName";
         public const string OwnerTableColumnName = "OwnerTable";
-        private DataTable _dataTable1;
-        private DataTable _dataTable2;
     }
 }
