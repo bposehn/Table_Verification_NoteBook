@@ -20,6 +20,7 @@ using MathNet.Numerics;
         public string FilesLocation;
         public Dictionary<string, float> TableParams;
         public float[] flaggingProfileValues;
+        public float[] existentSearchAxisValues;
     }
 
     public class YamlConfig
@@ -467,13 +468,15 @@ using MathNet.Numerics;
                         temp_dt.ImportRow(row);
                     }
 
-                    float[] flaggingProfileValues = GetFloatColumnFromTable(temp_dt, columnName);   
+                    float[] flaggingProfileValues = GetFloatColumnFromTable(temp_dt, columnName);
+                    float[] existentSearchAxisValues = GetFloatColumnFromTable(temp_dt, searchAxisName);   
 
                     flaggingProfile.SearchAxis = searchAxisName;
                     flaggingProfile.ProfileColumnName = columnName;
                     flaggingProfile.TableParams = tableParams;
                     flaggingProfile.FilesLocation = GetFilesLocation();
                     flaggingProfile.flaggingProfileValues = flaggingProfileValues;
+                    flaggingProfile.existentSearchAxisValues = existentSearchAxisValues;
 
                     flaggingProfiles.Add(flaggingProfile);
                 }
@@ -814,8 +817,8 @@ using MathNet.Numerics;
         public static void Main()
         {
             // var tableComparer = new TableComparer("pi3b_v25_21oct-pfc_2022-03-03", "pi3b_v25_pfc17500_2022-05-27"); //1098254
-            // var tableComparer = new TableComparer("pi3b_asbuilt_pfc_g486a_2022-09-18_0", "pi3b_asbuilt_pfc17500ab_2022-06-09_b"); //122962 filenames diff
-            var tableComparer = new TableComparer("pi3b_asbuilt_pfc_g486a_2022-09-18_0", "pi3b_asbuilt_pfc_g486a_2022-09-18"); //1098254
+            var tableComparer = new TableComparer("pi3b_asbuilt_pfc_g486a_2022-09-18", "pi3b_asbuilt_pfc17500ab_2022-06-09_b"); //122962 filenames diff
+            // var tableComparer = new TableComparer("pi3b_asbuilt_pfc_g486a_2022-09-18_0", "pi3b_asbuilt_pfc_g486a_2022-09-18"); //1098254
 
             var sw = new Stopwatch();
             sw.Start();
